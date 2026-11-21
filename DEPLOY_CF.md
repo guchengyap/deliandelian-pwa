@@ -30,11 +30,8 @@ Cloudflare D1（SQLite：users / user_spaces / user_files 三张表）
 ## 2. 命令行准备（在项目根目录执行）
 
 ```bash
-# 安装项目依赖
+# 安装项目依赖（wrangler 已写进 devDependencies，无需单独安装）
 npm install
-
-# 安装 Cloudflare 官方 CLI（含 workerd 本地运行时，约 100MB，网络慢请耐心）
-npm install -D wrangler
 
 # 登录 Cloudflare：会自动打开浏览器授权，点 Allow
 npx wrangler login
@@ -42,6 +39,9 @@ npx wrangler login
 # 验证登录成功（应显示你的账号邮箱）
 npx wrangler whoami
 ```
+
+> 若 `npx wrangler` 报找不到命令（例如 node_modules 被清理过），单独补装一次即可：
+> `npm install -D wrangler`（含 workerd 本地运行时约 100MB，网络慢请耐心）。
 
 > 如果浏览器没弹出来，把终端里的 URL 复制到浏览器打开即可。
 
