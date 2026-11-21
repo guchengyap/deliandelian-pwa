@@ -30,8 +30,11 @@ Cloudflare D1（SQLite：users / user_spaces / user_files 三张表）
 ## 2. 命令行准备（在项目根目录执行）
 
 ```bash
-# 安装依赖（含 wrangler，Cloudflare 官方 CLI）
+# 安装项目依赖
 npm install
+
+# 安装 Cloudflare 官方 CLI（含 workerd 本地运行时，约 100MB，网络慢请耐心）
+npm install -D wrangler
 
 # 登录 Cloudflare：会自动打开浏览器授权，点 Allow
 npx wrangler login
