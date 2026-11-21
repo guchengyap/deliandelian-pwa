@@ -1,0 +1,139 @@
+:root {
+  /* ── 主题变量：默认「液态冰蓝」，body.theme-sunset 覆盖为「落日橙」── */
+  --bg-base: #e9f0f8;
+  --glow-color-1: #93c5fd; /* 右上角环境光（天空蓝） */
+  --glow-color-2: #a5b4fc; /* 左下角环境光（紫罗兰蓝） */
+  --accent-color: #2563eb; /* 宝石蓝 */
+  --accent-bg: rgba(37, 99, 235, 0.15);
+  --shadow-color: rgba(37, 99, 235, 0.3);
+
+  /* 派生别名：沿用组件里的既有引用 */
+  --bg: var(--bg-base);
+  --accent: var(--accent-color);
+  --accent-soft: var(--accent-bg);
+  --accent-line: var(--shadow-color);
+
+  /* ── 共享中性色（两套主题同为浅底深字）── */
+  --text: #1c1c1e;
+  --muted: rgba(60, 60, 67, 0.6);
+  --faint: rgba(60, 60, 67, 0.33);
+  --line: rgba(60, 60, 67, 0.14);
+  --hairline: rgba(60, 60, 67, 0.18);
+  --fill: rgba(120, 120, 128, 0.08);
+  --track: rgba(60, 60, 67, 0.12);
+  /* 实底白：分段控件选中块等小元素 */
+  --card: #ffffff;
+
+  /* ── 物理级玻璃卡片材质（iOS 控制中心）── */
+  --card-glass: rgba(255, 255, 255, 0.35);
+  --card-glass-border: rgba(255, 255, 255, 0.5);
+  --card-glass-shadow:
+    inset 0 1px 2px rgba(255, 255, 255, 0.9),
+    inset 0 -1px 2px rgba(255, 255, 255, 0.2),
+    0 20px 40px rgba(0, 0, 0, 0.04);
+  --card-blur: blur(50px) saturate(200%);
+
+  /* ── 毛玻璃浮层（tab 栏 / 底栏）── */
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-line: rgba(255, 255, 255, 0.5);
+
+  /* ── 圆角与缓动 ── */
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 16px;
+  --ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+
+  /* 兼容旧组件引用 */
+  --surface: var(--fill);
+  --glass-shadow: none;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  color: var(--text);
+  color-scheme: light;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── 落日橙主题 ─────────────────────────────────────── */
+/* 注意：CSS 变量的 var() 替换发生在声明元素（:root）上，
+   因此这里必须把派生别名一并覆盖，否则 body 内拿到的仍是 :root 解析出的冰蓝。 */
+body.theme-sunset {
+  --bg-base: #fdf8f5;
+  --glow-color-1: #fecdd3; /* 玫瑰粉 */
+  --glow-color-2: #fed7aa; /* 蜜桃橘 */
+  --accent-color: #d9480f; /* 赤陶橘 */
+  --accent-bg: rgba(217, 72, 15, 0.15);
+  --shadow-color: rgba(217, 72, 15, 0.3);
+  --bg: var(--bg-base);
+  --accent: #d9480f;
+  --accent-soft: rgba(217, 72, 15, 0.15);
+  --accent-line: rgba(217, 72, 15, 0.3);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* 基础底色 + 右上/左下环境光晕 + 极微弱噪点（iOS 控制中心底板） */
+  background-color: var(--bg-base);
+  background-image:
+    radial-gradient(55% 45% at 88% 0%, color-mix(in srgb, var(--glow-color-1) 60%, transparent), transparent 72%),
+    radial-gradient(50% 42% at 8% 100%, color-mix(in srgb, var(--glow-color-2) 55%, transparent), transparent 70%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-attachment: fixed;
+  line-height: 1.6;
+  min-height: 100dvh;
+  transition: background-color 0.5s ease;
+}
+
+/* 玻璃卡片通用材质：组件里 .card / .glass / .dial-card 等引用这些变量 */
+button {
+  font-family: inherit;
+  transition: all 0.5s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* 统一细滚动条 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(60, 60, 67, 0.25) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(60, 60, 67, 0.25);
+  border-radius: 99px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::selection {
+  background: var(--accent-bg);
+  color: var(--text);
+}
+input,
+textarea {
+  caret-color: var(--accent-color);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
