@@ -1,44 +1,45 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { StorageStatus } from '../lib/persistence'
-import { exportBackup, importBackup, type ImportResult } from '../lib/backup'
-import { SPACE } from '../lib/space'
-import { autoSyncEnabled, setAutoSync } from '../lib/syncClient'
+import { computed, ref } from 'vue'
+import { auth, logout } from '../lib/auth'
+import { CLOUD_API_BASE, STORAGE_LIMIT } from '../config'
+import { cloudAvailable } from '../lib/cloudSpace'
+import { exportJsonBackup } from '../lib/backup'
 import { currentTheme, setTheme, type ThemeName } from '../lib/theme'
 
-defineProps<{
-  status: StorageStatus
+const props = defineProps<{
   taskCount: number
-  syncConnected: boolean
+  /** 是否处于维护模式（维护页打开时为 true，开关随之点亮）。 */
+  maintaining: boolean
 }>()
-const emit = defineEmits<{ back: []; maintenance: []; imported: []; help: [] }>()
+const emit = defineEmits<{
+  back: []
+  maintenance: []
+  help: []
+  /** 游客点维护开关：打开登录/注册弹层（App 侧同时 toast 提示）。 */
+  login: []
+  /** 恢复默认模板（登录用户）。 */
+  restore: []
+}>()
 
 /** 构建版本号（vite define 注入），用于核对设备是否运行最新版。 */
 const buildId = __BUILD_ID__
 
-const busy = ref(false)
-const feedback = ref('')
-const fileInput = ref<HTMLInputElement | null>(null)
 const theme = ref<ThemeName>(currentTheme())
-const autoSync = ref(autoSyncEnabled.value)
-
-async function toggleAutoSync() {
-  autoSync.value = !autoSync.value
-  await setAutoSync(autoSync.value)
-}
-
 async function pickTheme(name: ThemeName) {
   theme.value = name
   await setTheme(name)
 }
 
+// ── 备份（导出 JSON）──
+const busy = ref(false)
+const feedback = ref('')
 async function onExport() {
   if (busy.value) return
   busy.value = true
-  feedback.value = '正在打包备份…'
+  feedback.value = '正在打包…'
   try {
-    const r = await exportBackup()
-    feedback.value = `备份已下载：${r.level1} 组 / ${r.level2} 项 / ${r.records} 条打卡 / ${r.files} 个文件`
+    const n = await exportJsonBackup()
+    feedback.value = `备份已下载（${n} 条数据），保存在浏览器下载目录`
   } catch (e) {
     feedback.value = `导出失败：${e instanceof Error ? e.message : String(e)}`
   } finally {
@@ -46,23 +47,23 @@ async function onExport() {
   }
 }
 
-async function onImport(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file || busy.value) return
-  busy.value = true
-  feedback.value = '正在恢复备份…'
-  try {
-    const r: ImportResult = await importBackup(file)
-    feedback.value = `已恢复：${r.level1} 组 / ${r.level2} 项 / ${r.records} 条打卡 / ${r.files} 个文件`
-    emit('imported')
-  } catch (err) {
-    feedback.value = `导入失败：${err instanceof Error ? err.message : String(err)}`
-  } finally {
-    input.value = ''
-    busy.value = false
+// ── 维护模式开关：游客拦截 ──
+function onMaintenanceSwitch() {
+  if (!auth.user) {
+    emit('login') // App 打开登录/注册并提示「请先登录账号」
+    return
   }
+  // 维护页打开时开关已点亮；再点关闭不做任何事（退出由维护页按钮负责）。
+  if (!props.maintaining) emit('maintenance')
 }
+
+// ── 显示辅助 ──
+const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_URL}favicon.svg`)
+const usageText = computed(() => {
+  if (!auth.usage) return '云端已同步'
+  const mb = (n: number) => (n / 1024 / 1024).toFixed(1)
+  return `云端已同步（已用 ${mb(auth.usage.used)} MB / ${mb(auth.usage.limit || STORAGE_LIMIT)} MB）`
+})
 </script>
 
 <template>
@@ -72,12 +73,28 @@ async function onImport(e: Event) {
       <h1>设置</h1>
     </header>
 
+    <!-- 顶部：账号与头像 -->
+    <section class="account">
+      <img class="avatar" :src="avatarSrc" alt="头像" />
+      <div class="account-info">
+        <p class="username">{{ auth.user ? auth.user.username : '游客模式' }}</p>
+        <p class="account-sub">
+          {{ auth.user ? (auth.user.role === 'admin' ? '管理员 · 默认模板维护者' : '专属空间已就绪') : '公共只读 · 登录后可定制' }}
+        </p>
+      </div>
+      <button v-if="!auth.user" type="button" class="pill primary" @click="emit('login')">登录 / 注册</button>
+      <button v-else type="button" class="pill" @click="logout">退出登录</button>
+    </section>
+
     <dl class="rows">
       <div class="row">
-        <dt>存储持久化</dt>
-        <dd v-if="!status.supported">当前浏览器不支持</dd>
-        <dd v-else :class="status.persisted ? 'ok' : 'warn'">
-          {{ status.persisted ? '已开启（数据不易被清理）' : '未开启（空间紧张时可能被清理）' }}
+        <dt>当前空间</dt>
+        <dd>
+          <template v-if="!auth.user">默认空间（只读）</template>
+          <template v-else>
+            我的专属空间
+            <button type="button" class="mini" @click="emit('restore')">恢复默认模板</button>
+          </template>
         </dd>
       </div>
       <div class="row">
@@ -85,34 +102,32 @@ async function onImport(e: Event) {
         <dd>{{ taskCount }} 项</dd>
       </div>
       <div class="row">
-        <dt>同步通道</dt>
-        <dd :class="syncConnected ? 'ok' : ''">
-          {{ syncConnected ? '已连接' : '等待电脑端启动' }}
+        <dt>云端状态</dt>
+        <dd :class="{ ok: !!auth.user && cloudAvailable }">
+          <template v-if="!cloudAvailable">未连接云端（本地模式）</template>
+          <template v-else-if="!auth.user">公共只读模式</template>
+          <template v-else>{{ usageText }}</template>
         </dd>
       </div>
       <div class="row">
-        <dt>自动同步</dt>
+        <dt>数据备份</dt>
+        <dd><button type="button" class="mini" :disabled="busy" @click="onExport">导出 JSON 备份</button></dd>
+      </div>
+      <div class="row">
+        <dt>维护模式</dt>
         <dd>
           <button
             type="button"
             class="switch"
-            :class="{ on: autoSync }"
+            :class="{ on: maintaining }"
             role="switch"
-            :aria-checked="autoSync"
-            aria-label="自动同步"
-            @click="toggleAutoSync"
+            :aria-checked="maintaining"
+            :aria-label="auth.user ? '维护模式' : '维护模式（需登录）'"
+            @click="onMaintenanceSwitch"
           >
             <span class="knob"></span>
           </button>
         </dd>
-      </div>
-      <div class="row">
-        <dt>数据位置</dt>
-        <dd>仅本机 · IndexedDB</dd>
-      </div>
-      <div class="row">
-        <dt>当前空间</dt>
-        <dd>{{ SPACE === 'default' ? '默认' : SPACE }}</dd>
       </div>
       <div class="row">
         <dt>应用版本</dt>
@@ -146,32 +161,11 @@ async function onImport(e: Event) {
       </div>
     </div>
 
-    <p class="hint">音频与图片在首次联网时缓存到本机，之后可离线使用。</p>
-    <p class="hint">iOS 锁屏后页面脚本会被挂起，未同步的打卡会在下次打开应用时自动补推。</p>
-
-    <div class="backup">
-      <h2>备份与恢复</h2>
-      <p class="warning" role="note">自定义方案和上传的音频只保存在本设备。换设备或清理浏览器数据前，请使用导出备份。</p>
-      <div class="backup-actions">
-        <button type="button" :disabled="busy" @click="onExport">导出备份</button>
-        <button type="button" :disabled="busy" @click="fileInput?.click()">导入备份</button>
-        <input
-          ref="fileInput"
-          type="file"
-          accept=".zip,application/zip"
-          hidden
-          @change="onImport"
-        />
-      </div>
-      <p v-if="feedback" class="feedback" role="status">{{ feedback }}</p>
-    </div>
+    <p class="hint">{{ CLOUD_API_BASE ? '打卡记录保存在本机你的专属库里；练习内容与文件保存在你的云端空间。' : '云端服务未配置，当前为纯本地模式：所有数据仅保存在本机。' }}</p>
 
     <div class="maintenance">
       <button type="button" class="entry" @click="emit('help')">
         帮助与教程 <span aria-hidden="true">›</span>
-      </button>
-      <button type="button" @click="emit('maintenance')">
-        维护模式 <span aria-hidden="true">›</span>
       </button>
     </div>
   </div>
@@ -202,21 +196,77 @@ async function onImport(e: Event) {
   cursor: pointer;
   padding: 6px 0;
 }
+/* 顶部账号卡片 */
+.account {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card-glass);
+  border: 1px solid var(--card-glass-border);
+  -webkit-backdrop-filter: var(--card-blur);
+  backdrop-filter: var(--card-blur);
+  box-shadow: var(--card-glass-shadow);
+  border-radius: var(--r-m);
+  padding: 16px;
+  margin-bottom: 16px;
+  transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+}
+.avatar {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--fill);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+.account-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.username {
+  margin: 0 0 2px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.account-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.pill {
+  flex: 0 0 auto;
+  border: none;
+  background: var(--fill);
+  color: var(--text);
+  border-radius: 999px;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.pill.primary {
+  background: var(--accent);
+  color: #fff;
+}
 .rows {
   margin: 0;
-    background: var(--card-glass);
+  background: var(--card-glass);
   border: 1px solid var(--card-glass-border);
   -webkit-backdrop-filter: var(--card-blur);
   backdrop-filter: var(--card-blur);
   box-shadow: var(--card-glass-shadow);
   transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
-
   border-radius: var(--r-m);
   padding: 0 16px;
 }
 .row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 16px;
   padding: 13px 0;
   border-bottom: 1px solid var(--line);
@@ -233,14 +283,28 @@ dd {
   font-size: 13px;
   color: var(--muted);
   text-align: right;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 dd.ok {
   color: var(--accent);
 }
-dd.warn {
-  color: #b25000;
+.mini {
+  border: none;
+  background: var(--fill);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
 }
-/* iOS 风格开关：自动同步 */
+.mini:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+/* iOS 风格开关：维护模式 */
 .switch {
   position: relative;
   width: 46px;
@@ -335,61 +399,14 @@ dd.warn {
 .swatch.active .swatch-name {
   color: var(--text);
 }
-.backup {
-  margin-top: 28px;
-  border-top: 1px solid var(--line);
-  padding-top: 18px;
-}
-.backup h2 {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-}
-.warning {
-  margin: 0 0 14px;
-  padding: 12px 14px;
-  border: none;
-  border-radius: var(--r-s);
-  background: rgba(255, 204, 0, 0.14);
-  font-size: 13px;
-  line-height: 1.55;
-  color: #7a5800;
-}
-.backup-actions {
-  display: flex;
-  gap: 12px;
-}
-.backup-actions button {
-  flex: 1;
-  padding: 10px 12px;
-  border: none;
-  border-radius: var(--r-s);
-  background: var(--fill);
-  color: var(--text);
-  font-size: 14px;
-  font-family: inherit;
-  cursor: pointer;
-}
-.backup-actions button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.feedback {
-  margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--accent);
-}
 .maintenance {
   margin-top: 24px;
-    background: var(--card-glass);
+  background: var(--card-glass);
   border: 1px solid var(--card-glass-border);
   -webkit-backdrop-filter: var(--card-blur);
   backdrop-filter: var(--card-blur);
   box-shadow: var(--card-glass-shadow);
   transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
-
   border-radius: var(--r-m);
   padding: 0 16px;
 }

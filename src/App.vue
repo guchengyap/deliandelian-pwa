@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { db, seedIfEmpty } from './db/db'
+import { db, seedIfEmpty, type Level1Item, type Level2Item } from './db/db'
 import { completedIdsOn, dateKey, setCompletion, toggleCompletion, uncompleteAllOn } from './db/records'
 import { stopAll } from './lib/audioSession'
-import { requestPersistence, type StorageStatus } from './lib/persistence'
 import { buildTaskGroups, flattenTasks } from './lib/tasks'
-import { nudgeSync, startSync, syncConnected } from './lib/syncClient'
+import { auth, initAuth } from './lib/auth'
+import {
+  canWriteCloud,
+  cloudAvailable,
+  fetchAdminSpace,
+  fetchMySpace,
+  resetMySpace,
+} from './lib/cloudSpace'
 import EditView from './components/EditView.vue'
+import AuthView from './components/AuthView.vue'
 import HelpView from './components/HelpView.vue'
 import SettingsView from './components/SettingsView.vue'
 import StatsView from './components/StatsView.vue'
@@ -24,10 +31,13 @@ const tasks = computed(() => flattenTasks(groups.value))
 const current = ref(0)
 const tab = ref<Tab>('stats')
 const overlay = ref<Overlay>('none')
-const status = ref<StorageStatus>({ supported: false, persisted: false })
 const ready = ref(false)
 const reloadKey = ref(0)
 const statsKey = ref(0)
+/** 登录/注册弹层 */
+const showAuth = ref(false)
+/** 是否处于维护模式（供设置页开关点亮）。 */
+const maintaining = computed(() => overlay.value === 'edit')
 
 /** 当前日期（响应式）：挂后台跨天后回前台/操作前自动修正，避免打卡记错日期。 */
 const today = ref(dateKey())
@@ -206,13 +216,6 @@ async function onUncheckAll() {
 async function afterChange() {
   await loadToday()
   statsKey.value += 1
-  nudgeSync()
-}
-
-/** 远端同步合并后：刷新今日完成状态与统计。 */
-async function onSyncMerged() {
-  await loadToday()
-  statsKey.value += 1
 }
 
 function go(delta: number) {
@@ -239,6 +242,47 @@ async function reloadCatalog() {
   ])
   groups.value = buildTaskGroups(l1, l2)
   reloadKey.value += 1
+}
+
+/** 云端空间数据覆盖本地目录（整体替换，保持 id 稳定以免打卡历史断链）。 */
+async function applySpace(data: { level1: Level1Item[]; level2: Level2Item[] }) {
+  await db.transaction('rw', db.level1, db.level2, async () => {
+    await db.level1.clear()
+    await db.level2.clear()
+    await db.level1.bulkAdd(data.level1)
+    await db.level2.bulkAdd(data.level2)
+  })
+}
+
+/**
+ * 启动时从云端拉取练习内容：
+ * - 游客 → admin 默认模板空间（只读）
+ * - 登录用户 → 专属空间（后端首次自动复制模板）
+ * 云端不可达时静默回退本地缓存（seedIfEmpty 已兜底），离线也能用。
+ */
+async function loadCloudCatalog() {
+  if (!cloudAvailable) return
+  try {
+    const resp = auth.user ? await fetchMySpace() : await fetchAdminSpace()
+    await applySpace(resp.data)
+  } catch {
+    // 忽略：走本地缓存
+  }
+}
+
+/** 恢复默认模板（登录用户）：用模板覆盖我的空间并刷新界面。 */
+async function onRestoreDefault() {
+  if (!auth.user) return
+  try {
+    const data = await resetMySpace()
+    await applySpace(data)
+    await reloadCatalog()
+    await loadToday()
+    current.value = Math.min(current.value, Math.max(0, tasks.value.length - 1))
+    showToast('已恢复默认模板')
+  } catch (e) {
+    showToast(e instanceof Error ? e.message : '恢复失败，请重试')
+  }
 }
 
 const tunerView = ref<InstanceType<typeof TunerView> | null>(null)
@@ -268,6 +312,11 @@ async function onSaved() {
   current.value = Math.min(current.value, Math.max(0, tasks.value.length - 1))
   overlay.value = 'none'
   tab.value = 'today'
+  showToast(
+    canWriteCloud()
+      ? '维护已完成，所有修改与文件已保存至云端 ✓'
+      : '维护已完成，修改已保存至本机 ✓',
+  )
 }
 
 function openSettings() {
@@ -282,35 +331,39 @@ function openHelp() {
   overlay.value = 'help'
 }
 
+/** 设置页维护开关（游客）：打开登录/注册弹层并提示。 */
+function onLoginRequired() {
+  showToast('请先登录账号')
+  showAuth.value = true
+}
+
+/** 登录/注册成功：整页刷新，本地库随用户空间切换、数据重新加载。 */
+function onAuthSuccess() {
+  location.reload()
+}
+
 function closeOverlay() {
   overlay.value = 'none'
 }
 
-/** 备份导入后：按 order 重建队列与编号、刷新状态，并推送同步。 */
-async function onImported() {
-  await reloadCatalog()
-  await loadToday()
-  statsKey.value += 1
-  current.value = Math.min(current.value, Math.max(0, tasks.value.length - 1))
-  nudgeSync()
-}
-
 onMounted(async () => {
-  startSync(onSyncMerged)
-  const statusPromise = requestPersistence()
+  await initAuth()
   try {
-    await seedIfEmpty()
+    await seedIfEmpty() // 离线首启兜底
+    await loadCloudCatalog() // 云端可用时以云端空间为准（游客=默认模板，登录=专属空间）
     await loadToday()
     await reloadCatalog()
   } finally {
     ready.value = true
   }
-  status.value = await statusPromise
 })
 </script>
 
 <template>
   <div class="app">
+    <!-- 登录 / 注册弹层：根级挂载，任何界面（含设置页）都能唤起 -->
+    <AuthView v-if="showAuth" @close="showAuth = false" @success="onAuthSuccess" />
+
     <!-- 覆盖层：维护 / 设置 / 帮助 -->
     <template v-if="overlay === 'edit'">
       <EditView @close="closeOverlay" @saved="onSaved" />
@@ -319,13 +372,13 @@ onMounted(async () => {
     <template v-else-if="overlay === 'settings'">
       <main class="panel-stage">
         <SettingsView
-          :status="status"
           :task-count="tasks.length"
-          :sync-connected="syncConnected"
+          :maintaining="maintaining"
           @back="closeOverlay"
           @maintenance="openMaintenance"
-          @imported="onImported"
           @help="openHelp"
+          @login="onLoginRequired"
+          @restore="onRestoreDefault"
         />
       </main>
     </template>

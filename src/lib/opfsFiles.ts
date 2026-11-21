@@ -1,4 +1,5 @@
 import type { PracticeFile } from '../db/db'
+import { cloudAvailable, cloudFileUrl } from './cloudSpace'
 import { opfsDirName, SPACE } from './space'
 
 /** 主线程侧 OPFS 文件客户端：写入走 Worker，读取走异步 getFile()。 */
@@ -90,10 +91,12 @@ export async function enumerateOpfsFiles(): Promise<{ name: string; blob: Blob }
 const urlCache = new Map<string, string>()
 
 /**
- * 播放/预览优先级：OPFS files/<id> > file.path（public 预置路径 / files/<id>）。
+ * 播放/预览优先级：云端 cloud_id 直链 > OPFS files/<id> > file.path（public 预置）。
  * 替换文件时保留原 id，因此新内容自动覆盖预置路径。
  */
 export async function resolveFileUrl(file: PracticeFile): Promise<string> {
+  // 云端文件：uuid 公开只读直链，audio/img 直接引用，浏览器自行缓存。
+  if (file.cloud_id && cloudAvailable) return cloudFileUrl(file.cloud_id)
   const cached = urlCache.get(file.id)
   if (cached) return cached
   let blob = await readOpfsFile(file.id)

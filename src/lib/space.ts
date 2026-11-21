@@ -18,7 +18,25 @@ export const DEFAULT_SPACE = 'default'
 
 const SEGMENT = /^[a-z0-9][a-z0-9_-]{0,31}$/i
 
+/**
+ * 已登录用户的本地隔离空间：u-<uid 前 8 位>。
+ * 同步读 localStorage（无网络、无依赖），保证 db.ts 模块加载时即可确定库名。
+ */
+function loggedInUid(): string | null {
+  try {
+    const token = localStorage.getItem('auth_token')
+    if (!token) return null
+    const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return typeof payload?.uid === 'string' && payload.uid ? (payload.uid as string) : null
+  } catch {
+    return null
+  }
+}
+
 export function currentSpace(): string {
+  // 登录用户优先：本地库与 OPFS 目录按用户隔离，互不干扰。
+  const uid = loggedInUid()
+  if (uid) return `u-${uid.slice(0, 8).toLowerCase()}`
   try {
     const parts = location.pathname.split('/').filter(Boolean)
     const last = parts[parts.length - 1]

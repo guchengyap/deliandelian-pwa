@@ -4,13 +4,17 @@ import { dbName, SPACE } from '../lib/space'
 
 export type FileType = 'audio' | 'image'
 
-/** 资源引用：name 是原始文件名，path 是 OPFS 存储路径（用 id 命名避免冲突）。 */
+/** 资源引用：本地文件走 OPFS（id/path），云端文件走 cloud_id（D1 user_files）。 */
 export interface PracticeFile {
   id: string
   name: string
   type: FileType
   path: string
   mime: string
+  /** 云端文件 id（Workers user_files 主键）；存在时播放走云端直链。 */
+  cloud_id?: string
+  /** 文件字节大小（云端上传后记录，用于维护页展示）。 */
+  size?: number
 }
 
 /** 二级项的 config，字段按需出现，不出现的 Key 不写进库。 */

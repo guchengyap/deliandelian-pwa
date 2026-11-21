@@ -1,0 +1,124 @@
+{
+  "level1": [
+    { "id": "breath", "order": 1, "title": "气息" },
+    { "id": "channel", "order": 2, "title": "通道" },
+    { "id": "vocalises", "order": 3, "title": "练声曲" }
+  ],
+  "level2": [
+    {
+      "id": "breath-support",
+      "level1_id": "breath",
+      "order": 1,
+      "title": "气息与支撑练声曲",
+      "files": [
+        { "id": "f1a", "name": "1a.mp3", "type": "audio", "path": "/audio/1a.mp3", "mime": "audio/mpeg" },
+        { "id": "f1b", "name": "1b.mp3", "type": "audio", "path": "/audio/1b.mp3", "mime": "audio/mpeg" },
+        { "id": "f1c", "name": "1c.mp3", "type": "audio", "path": "/audio/1c.mp3", "mime": "audio/mpeg" }
+      ],
+      "plan": "每日各2次",
+      "config": { "sequence": ["f1a", "f1b", "f1c", "f1a", "f1b", "f1c"] }
+    },
+    {
+      "id": "panting",
+      "level1_id": "breath",
+      "order": 2,
+      "title": "狗喘气",
+      "plan": "每日少量多次，每次每组60s，2~3组，间歇45s",
+      "config": { "sets": { "min": 2, "max": 3 }, "secondsPerSet": 60, "restSeconds": 45 }
+    },
+    {
+      "id": "bend-90",
+      "level1_id": "channel",
+      "order": 3,
+      "title": "弯腰90°放松",
+      "note": "放松喉外肌"
+    },
+    {
+      "id": "bubble-tone",
+      "level1_id": "channel",
+      "order": 4,
+      "title": "气泡音",
+      "note": "气息极少、喉咙零用力",
+      "config": { "timer": 60 }
+    },
+    {
+      "id": "yawn-sigh",
+      "level1_id": "channel",
+      "order": 5,
+      "title": "哈欠—叹气",
+      "config": { "reps": { "min": 5, "max": 8 } }
+    },
+    {
+      "id": "larynx-shake",
+      "level1_id": "channel",
+      "order": 6,
+      "title": "轻摇喉头",
+      "note": "轻扶喉结两侧，左右轻晃10次，同时发低音'啊'",
+      "config": { "reps": 10 }
+    },
+    {
+      "id": "tongue-trill",
+      "level1_id": "channel",
+      "order": 7,
+      "title": "舌颤音",
+      "config": { "timer": 30 }
+    },
+    {
+      "id": "tongue-sigh",
+      "level1_id": "channel",
+      "order": 8,
+      "title": "伸舌叹气",
+      "note": "舌头尽量伸出（可轻咬舌尖固定），发'啊——'，保持5秒×5次",
+      "config": { "reps": 5, "secondsPerRep": 5 }
+    },
+    {
+      "id": "comprehensive",
+      "level1_id": "channel",
+      "order": 9,
+      "title": "综合",
+      "note": "书垫住下巴，伸舌头，边轻摇边主动抬头，抬头看天"
+    },
+    {
+      "id": "sovt",
+      "level1_id": "channel",
+      "order": 10,
+      "title": "半闭合发声（SOVT）",
+      "files": [
+        { "id": "sovt", "name": "sovt.mp3", "type": "audio", "path": "/audio/sovt.mp3", "mime": "audio/mpeg" }
+      ],
+      "plan": "唇颤音；吸管发声（呜~滑音上下各5次）；咬住筷子（呜~滑音上下各5次）"
+    },
+    {
+      "id": "pitch",
+      "level1_id": "vocalises",
+      "order": 11,
+      "title": "音准",
+      "files": [
+        { "id": "henming", "name": "音程哼鸣.mp3", "type": "audio", "path": "/audio/henming.mp3", "mime": "audio/mpeg" },
+        { "id": "changming", "name": "音程唱名.mp3", "type": "audio", "path": "/audio/changming.mp3", "mime": "audio/mpeg" },
+        { "id": "sheet1", "name": "Sheet1.png", "type": "image", "path": "/images/sheet1.png", "mime": "image/png" },
+        { "id": "sheet2", "name": "Sheet2.png", "type": "image", "path": "/images/sheet2.png", "mime": "image/png" }
+      ],
+      "note": "音程哼鸣/音程唱名"
+    },
+    {
+      "id": "edge",
+      "level1_id": "vocalises",
+      "order": 12,
+      "title": "边缘化",
+      "files": [
+        { "id": "bianyuanhua", "name": "边缘化.mp3", "type": "audio", "path": "/audio/bianyuanhua.mp3", "mime": "audio/mpeg" }
+      ]
+    },
+    {
+      "id": "misc",
+      "level1_id": "vocalises",
+      "order": 13,
+      "title": "其他",
+      "files": [
+        { "id": "qita1", "name": "其他1.mp3", "type": "audio", "path": "/audio/qita1.mp3", "mime": "audio/mpeg" },
+        { "id": "qita2", "name": "其他2.mp3", "type": "audio", "path": "/audio/qita2.mp3", "mime": "audio/mpeg" }
+      ]
+    }
+  ]
+}

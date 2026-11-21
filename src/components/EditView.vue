@@ -14,6 +14,15 @@ import {
   resolveFileUrl,
   writeOpfsFile,
 } from '../lib/opfsFiles'
+import { auth, refreshUsage } from '../lib/auth'
+import { STORAGE_LIMIT } from '../config'
+import {
+  canWriteCloud,
+  cloudFileUrl,
+  deleteCloudFile,
+  saveSpace,
+  uploadCloudFile,
+} from '../lib/cloudSpace'
 import { uuid } from '../lib/uuid'
 
 const emit = defineEmits<{ close: []; saved: [] }>()
@@ -37,6 +46,14 @@ const saving = ref(false)
 /** 载入时就存在的 opfs 文件，删除后需等保存再真正删；取消则保留。 */
 const originalIds = new Set<string>()
 const deletedIds = new Set<string>()
+/** 云端文件上传状态（维护页行内反馈）：uploading → done/error。 */
+const uploadStates = reactive<Record<string, 'uploading' | 'done' | 'error'>>({})
+/** 本会话新上传的云端文件（取消维护时需清理）；保存后移出。 */
+const newCloudIds = new Set<string>()
+/** 保存成功后才真正从云端删除的旧文件（取消可恢复）。 */
+const deletedCloudIds = new Set<string>()
+
+const mb = (bytes?: number) => `${((bytes ?? 0) / 1024 / 1024).toFixed(1)} MB`
 
 async function loadDraft() {
   const [l1, l2] = await Promise.all([
@@ -102,11 +119,15 @@ function deleteItem(group: DraftGroup, id: string) {
 }
 
 function discardFile(file: PracticeFile) {
-  // 本次会话新上传的文件立即清理；预置文件等保存时再删，取消可恢复。
-  if (file.id.startsWith('u-')) void deleteOpfsFile(file.id)
+  if (file.cloud_id) {
+    // 云端文件：本会话新上传的立即删；原有文件等保存成功再删，取消维护可恢复。
+    if (newCloudIds.has(file.cloud_id)) void deleteCloudFile(file.cloud_id)
+    else deletedCloudIds.add(file.cloud_id)
+  } else if (file.id.startsWith('u-')) void deleteOpfsFile(file.id)
   else if (originalIds.has(file.id)) deletedIds.add(file.id)
   invalidateFileUrl(file.id)
   delete previews[file.id]
+  delete uploadStates[file.id]
 }
 
 function removeFile(item: Level2Item, file: PracticeFile) {
@@ -183,6 +204,7 @@ async function onFiles(e: Event) {
     ?.items.find((i) => i.id === ctx.itemId)
   if (!item) return
 
+  const useCloud = canWriteCloud()
   let accepted = 0
   let rejected = false
   try {
@@ -194,11 +216,41 @@ async function onFiles(e: Event) {
           continue
         }
         const id = `u-${uuid()}`
-        await writeOpfsFile(id, file)
-        const ref: PracticeFile = { id, name: file.name, type, path: `files/${id}`, mime: file.type }
-        ensureFiles(item).push(ref)
-        previews[id] = await resolveFileUrl(ref)
-        accepted += 1
+        const ref: PracticeFile = {
+          id,
+          name: file.name,
+          type,
+          path: useCloud ? '' : `files/${id}`,
+          mime: file.type,
+        }
+        if (useCloud) {
+          // 先占位让行内出现"上传中…"状态，上传完成后再补 cloud_id 与大小。
+          uploadStates[id] = 'uploading'
+          ensureFiles(item).push(ref)
+          previews[id] = ''
+        }
+        try {
+          if (useCloud) {
+            const up = await uploadCloudFile(file)
+            ref.cloud_id = up.id
+            ref.size = up.size
+            newCloudIds.add(up.id)
+            previews[id] = cloudFileUrl(up.id)
+            uploadStates[id] = 'done'
+            void refreshUsage()
+          } else {
+            await writeOpfsFile(id, file)
+            previews[id] = await resolveFileUrl(ref)
+          }
+          accepted += 1
+        } catch (err) {
+          if (!useCloud) throw err
+          // 上传失败（含 120MB 超额）：移除占位，行内恢复原状并提示。
+          item.files = ensureFiles(item).filter((f) => f.id !== id)
+          delete previews[id]
+          delete uploadStates[id]
+          message.value = err instanceof Error ? err.message : '上传失败，请重试'
+        }
       }
     } else {
       const file = files[0]
@@ -207,17 +259,43 @@ async function onFiles(e: Event) {
       else {
         const target = ensureFiles(item).find((f) => f.id === ctx.fileId)
         if (target) {
-          await writeOpfsFile(target.id, file)
-          target.name = file.name
-          target.type = type
-          target.mime = file.type
-          invalidateFileUrl(target.id)
-          previews[target.id] = await resolveFileUrl(target)
-          accepted += 1
+          if (useCloud) {
+            uploadStates[target.id] = 'uploading'
+            try {
+              const up = await uploadCloudFile(file)
+              const oldCloud = target.cloud_id
+              target.cloud_id = up.id
+              target.size = up.size
+              target.name = file.name
+              target.type = type
+              target.mime = file.type
+              newCloudIds.add(up.id)
+              if (oldCloud) {
+                if (newCloudIds.has(oldCloud)) void deleteCloudFile(oldCloud)
+                else deletedCloudIds.add(oldCloud)
+              }
+              previews[target.id] = cloudFileUrl(up.id)
+              uploadStates[target.id] = 'done'
+              void refreshUsage()
+              accepted += 1
+            } catch (err) {
+              uploadStates[target.id] = 'error'
+              message.value = err instanceof Error ? err.message : '上传失败，请重试'
+            }
+          } else {
+            await writeOpfsFile(target.id, file)
+            target.name = file.name
+            target.type = type
+            target.mime = file.type
+            invalidateFileUrl(target.id)
+            previews[target.id] = await resolveFileUrl(target)
+            accepted += 1
+          }
         }
       }
     }
-    message.value = rejected ? '仅支持音频和图片' : accepted ? '文件已写入本机 OPFS' : ''
+    if (!useCloud) message.value = rejected ? '仅支持音频和图片' : accepted ? '文件已写入本机 OPFS' : ''
+    else if (rejected && !message.value) message.value = '仅支持音频和图片'
   } catch {
     message.value = '写入失败：当前浏览器不支持 OPFS 同步写入'
   }
@@ -315,18 +393,25 @@ async function save() {
 
   saving.value = true
   try {
+    const l1rows = deepRaw(
+      groups.value.map((g, i) => ({ id: g.id, order: i + 1, title: g.title.trim() })),
+    )
+    const l2rows = deepRaw(
+      groups.value.flatMap((g) => g.items.map((item, i) => cleanItem(item, g.id, i + 1))),
+    )
     await db.transaction('rw', db.level1, db.level2, async () => {
       await db.level1.clear()
       await db.level2.clear()
-      await db.level1.bulkAdd(
-        deepRaw(groups.value.map((g, i) => ({ id: g.id, order: i + 1, title: g.title.trim() }))),
-      )
-      await db.level2.bulkAdd(
-        deepRaw(
-          groups.value.flatMap((g) => g.items.map((item, i) => cleanItem(item, g.id, i + 1))),
-        ),
-      )
+      await db.level1.bulkAdd(l1rows)
+      await db.level2.bulkAdd(l2rows)
     })
+    // 云端：先完成空间同步，再清理已删除的云端文件；任一步失败则留在维护模式重试。
+    if (canWriteCloud()) {
+      await saveSpace({ level1: l1rows, level2: l2rows })
+      for (const cid of deletedCloudIds) await deleteCloudFile(cid)
+      deletedCloudIds.clear()
+      void refreshUsage()
+    }
     for (const id of deletedIds) await deleteOpfsFile(id)
     deletedIds.clear()
     for (const g of groups.value) {
@@ -336,7 +421,7 @@ async function save() {
     }
     emit('saved')
   } catch (err) {
-    message.value = `保存失败：${String(err)}`
+    message.value = `保存失败：${err instanceof Error ? err.message : String(err)}（数据未丢失，请重试）`
   } finally {
     saving.value = false
   }
@@ -355,6 +440,7 @@ async function save() {
           {{ restoreConfirm ? '确认恢复？' : '恢复预置方案' }}
         </button>
         <button v-if="restoreConfirm" type="button" class="ghost" @click="restoreConfirm = false">取消</button>
+        <span v-if="canWriteCloud() && auth.usage" class="usage">已用 {{ mb(auth.usage.used) }} / {{ mb(STORAGE_LIMIT) }}</span>
         <span class="msg">{{ message }}</span>
       </div>
 
@@ -412,9 +498,13 @@ async function save() {
 
             <div class="files">
               <div v-for="f in item.files ?? []" :key="f.id" class="frow">
-                <audio v-if="f.type === 'audio'" :src="previews[f.id]" controls class="prev-audio" />
-                <img v-else :src="previews[f.id]" class="prev-img" :alt="f.name" />
+                <audio v-if="f.type === 'audio' && previews[f.id]" :src="previews[f.id]" controls class="prev-audio" />
+                <img v-else-if="f.type === 'image' && previews[f.id]" :src="previews[f.id]" class="prev-img" :alt="f.name" />
+                <span v-else class="prev-wait" aria-hidden="true">…</span>
                 <span class="fname" :title="f.name">{{ f.name }}</span>
+                <span v-if="uploadStates[f.id] === 'uploading'" class="fstate uploading">上传中…</span>
+                <span v-else-if="uploadStates[f.id] === 'done'" class="fstate done">已上传 ✓ {{ f.size ? mb(f.size) : '' }}</span>
+                <span v-else-if="f.size" class="fstate">{{ mb(f.size) }}</span>
                 <button type="button" class="ghost" @click="pick(g, item, 'replace', f.id)">替换</button>
                 <button type="button" class="danger" @click="removeFile(item, f)">删除</button>
               </div>
@@ -431,7 +521,7 @@ async function save() {
       <footer class="footer">
         <button type="button" class="ghost" @click="emit('close')">取消</button>
         <button type="button" class="primary" :disabled="saving" @click="save">
-          {{ saving ? '保存中…' : '保存' }}
+          {{ saving ? '保存中…' : '保存并退出维护' }}
         </button>
       </footer>
 
@@ -504,6 +594,35 @@ async function save() {
   color: var(--muted);
   margin-left: auto;
   text-align: right;
+}
+.usage {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.usage + .msg {
+  margin-left: 14px;
+}
+.fstate {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.fstate.uploading {
+  color: var(--muted);
+}
+.fstate.done {
+  color: var(--accent);
+}
+.prev-wait {
+  flex: 0 0 44px;
+  width: 44px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 16px;
 }
 .body {
   flex: 1 1 auto;

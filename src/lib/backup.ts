@@ -84,6 +84,27 @@ export async function exportBackup(): Promise<ImportResult> {
   return { records: records.length, level1: level1.length, level2: level2.length, files: opfsFiles.length }
 }
 
+/** 单文件 JSON 备份（云端模式下文件已存云端，无需打包 OPFS）。返回条目数。 */
+export async function exportJsonBackup(): Promise<number> {
+  const [records, level1, level2, config] = await Promise.all([
+    db.records.toArray(),
+    db.level1.orderBy('order').toArray(),
+    db.level2.orderBy('order').toArray(),
+    db.config.toArray(),
+  ])
+  const payload = { app: 'deliandelian', version: 1, exported_at: Date.now(), records, level1, level2, config }
+  const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `练声助手-备份-${localDate()}.json`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  return records.length + level1.length + level2.length
+}
+
 /** 从备份 File 恢复。校验后先合并记录，再整体替换目录，最后写回 OPFS 文件。 */
 export async function importBackup(file: File): Promise<ImportResult> {
   const entries = await unzipAsync(new Uint8Array(await file.arrayBuffer()))
