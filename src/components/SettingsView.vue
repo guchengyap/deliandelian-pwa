@@ -111,7 +111,7 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
         <button type="button" class="mini" @click="showFiles = true">管理云端文件</button>
       </div>
       <StorageRing :used="usage.usedBytes" :quota="usage.quotaBytes" :size="90" :stroke="9" />
-      <p class="cloud-hint">练习内容与上传的音频 / 图片保存在你的云端空间；打卡记录只存本机。</p>
+      <p class="cloud-hint">练习内容与上传的音频 / 图片保存在你的云端空间；打卡状态随账户同步，不占此容量。</p>
       <p v-if="cloudNote" class="cloud-note">{{ cloudNote }}</p>
     </section>
 
@@ -190,7 +190,7 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
       </div>
     </div>
 
-    <p class="hint">{{ CLOUD_API_BASE ? '打卡记录保存在本机你的专属库里；练习内容与文件保存在你的云端空间。' : '云端服务未配置，当前为纯本地模式：所有数据仅保存在本机。' }}</p>
+    <p class="hint">{{ CLOUD_API_BASE ? '打卡状态与个人数据随账户云端同步（多端一致）；练习内容与文件保存在你的云端空间。' : '云端服务未配置，当前为纯本地模式：所有数据仅保存在本机。' }}</p>
 
     <div class="maintenance">
       <button type="button" class="entry" @click="emit('help')">

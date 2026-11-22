@@ -15,35 +15,53 @@ import { api, cloudReady } from './auth'
 import { db, type RecordEntry } from '../db/db'
 import { mergeRemoteEntries, pruneDuplicates } from '../db/records'
 
-/** 上推互斥：避免连点打卡并发 flush 造成重复 PUT。 */
+/**
+ * 上推互斥 + 重跑（rerun）：
+ * 批量打卡（一键打卡/一键取消）逐项 setCompletion，每项都触发一次 flush。
+ * 若 flush 进行中又有新记录入队，简单短路会导致这些记录滞留 syncQueue
+ * 且无后续补偿——这里用 rerun 标志，让正在跑的那轮在清空队列后「再跑一轮」，
+ * 直到队列确实为空，保证批量变更最终全部上推。
+ */
 let flushing = false
+let rerun = false
 
-/** 打卡上推：读待同步队列 → PUT /api/records → 成功清队列。返回是否已同步。 */
+/** 打卡上推：循环读待同步队列 → PUT /api/records → 成功清队列，直到队列空。 */
 export async function flushPendingSync(): Promise<boolean> {
-  if (!cloudReady() || flushing) return false
-  flushing = true
-  try {
-    const queue = await db.syncQueue.toArray()
-    if (!queue.length) return true
-    const records = queue.map((q) => q.record)
-    await api('/api/records', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ records }),
-    })
-    await db.syncQueue.bulkDelete(queue.map((q) => q.key))
-    window.dispatchEvent(new CustomEvent('liansheng:sync-done'))
-    return true
-  } catch (e) {
-    const offline = typeof navigator !== 'undefined' && navigator.onLine === false
-    window.dispatchEvent(
-      new CustomEvent('liansheng:sync-error', {
-        detail: {
-          message: offline ? '当前离线，打卡已存本机，联网后自动同步' : '云端同步失败，已存本机，联网后自动重试',
-        },
-      }),
-    )
+  if (!cloudReady()) return false
+  if (flushing) {
+    rerun = true
     return false
+  }
+  flushing = true
+  let ok = true
+  try {
+    do {
+      rerun = false
+      const queue = await db.syncQueue.toArray()
+      if (!queue.length) break
+      const records = queue.map((q) => q.record)
+      try {
+        await api('/api/records', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ records }),
+        })
+        await db.syncQueue.bulkDelete(queue.map((q) => q.key))
+      } catch (e) {
+        ok = false
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false
+        window.dispatchEvent(
+          new CustomEvent('liansheng:sync-error', {
+            detail: {
+              message: offline ? '当前离线，打卡已存本机，联网后自动同步' : '云端同步失败，已存本机，联网后自动重试',
+            },
+          }),
+        )
+        break
+      }
+    } while (rerun)
+    if (ok) window.dispatchEvent(new CustomEvent('liansheng:sync-done'))
+    return ok
   } finally {
     flushing = false
   }

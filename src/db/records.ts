@@ -111,8 +111,10 @@ export function allCompleted(): Promise<RecordEntry[]> {
 
 /**
  * 合并一批记录进本地库（updated_at 新者胜 + 双键竞争裁决）。
- * 当前唯一用途：JSON 备份导入（backup.ts）——备份来自同一用户自己导出的
- * 文件，合并不涉及跨用户；云端多用户同步不存在（打卡不出本机）。
+ * 两个用途：① JSON 备份导入（backup.ts，同一用户自己导出的文件）；
+ * ② 云端拉取（recordSync.pullRecords，同一账号的 user_records）。
+ * 两个来源都只含「当前账号/用户自己的打卡」，合并不涉及跨用户；
+ * 跨账号隔离由库分片（space.ts）+ 后端 JWT 按 user_id 过滤共同保证。
  * 返回本地数据是否有变化。
  */
 export async function mergeRemoteEntries(

@@ -5,7 +5,7 @@ import { completedIdsOn, dateKey, setCompletion, toggleCompletion, uncompleteAll
 import { stopAll } from './lib/audioSession'
 import { buildTaskGroups, flattenTasks } from './lib/tasks'
 import { auth, initAuth } from './lib/auth'
-import { installSyncListeners, pullRecords } from './lib/recordSync'
+import { flushPendingSync, installSyncListeners, pullRecords } from './lib/recordSync'
 import {
   canWriteCloud,
   cloudAvailable,
@@ -360,7 +360,8 @@ onMounted(async () => {
   try {
     await seedIfEmpty() // 离线首启兜底
     await loadCloudCatalog() // 云端可用时以云端空间为准（游客=默认模板，登录=专属空间）
-    await pullRecords() // 登录用户拉取云端打卡（多端一致）；游客/纯本地自动短路
+    await flushPendingSync() // 先上推本地待同步残留（批量打卡被互斥可能遗留），启动补齐
+    await pullRecords() // 再拉云端（多端一致）；游客/纯本地自动短路
     await loadToday()
     await reloadCatalog()
   } finally {
