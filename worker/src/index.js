@@ -12,6 +12,8 @@
  *   PUT  /api/space             保存我的空间（鉴权）
  *   POST /api/space/reset       我的空间重置为默认模板（鉴权）
  *   GET  /api/usage             已用容量 {usedBytes,quotaBytes}（鉴权）
+ *   GET  /api/records           我的全部打卡记录（鉴权；随账户云端同步）
+ *   PUT  /api/records           上推/合并打卡记录（鉴权；按 date+practice_item_id 双键、updated_at 新者胜）
  *   POST /api/files             上传文件 multipart（鉴权；写入前校验 usedBytes+size<=quotaBytes，超额 413）
  *   GET  /api/files             我的文件列表 + 实时用量（鉴权）
  *   GET  /api/files/:id         文件内容（公开直链，id 为不可猜测 uuid）
@@ -23,10 +25,10 @@
  * 数据隔离（多用户不串号的根基）：
  * - 所有用户数据查询/写入的 user_id 一律取自 JWT（requireAuth），不信任客户端；
  * - user_spaces 只存 {level1, level2} 模板结构（validateSpaceData 白名单校验），
- *   打卡记录没有任何 D1 表与接口——打卡只存在各用户设备的本地库里，
- *   游客打卡不触碰 __admin__ 默认模板，admin 个人打卡也不进任何云端；
- * - 新用户首次 GET /api/space 仅复制 __admin__ 模板（level1/level2），
- *   不携带任何人的打卡数据。
+ *   新用户首次 GET /api/space 仅复制 __admin__ 模板（level1/level2），不携带任何人的打卡；
+ * - 打卡记录单独存 user_records，严格按 user_id 隔离：admin 的个人打卡只属 admin，
+ *   游客读取的默认模板（user_spaces.__admin__）不含任何人的打卡状态；
+ *   未登录游客无 token，无法读写 user_records——游客本地打卡仅当前设备试用，不回写云端。
  */
 
 import seed from './seed.json'
@@ -379,6 +381,63 @@ async function route(request, env, url) {
     const auth = await requireAuth(request, env)
     const q = await quotaView(env, auth.uid)
     return json({ ...q, used: q.usedBytes, limit: q.quotaBytes }, 200, cors)
+  }
+
+  // ── 打卡记录（随账户云端同步，换设备可恢复）──
+  if (path === '/api/records' && method === 'GET') {
+    const auth = await requireAuth(request, env)
+    const { results } = await env.DB
+      .prepare('SELECT record_id, date, practice_item_id, completed, updated_at FROM user_records WHERE user_id = ? ORDER BY updated_at ASC')
+      .bind(auth.uid)
+      .all()
+    const records = (results ?? []).map((r) => ({ ...r, completed: !!r.completed }))
+    return json({ records }, 200, cors)
+  }
+  if (path === '/api/records' && method === 'PUT') {
+    const auth = await requireAuth(request, env)
+    const body = await request.json().catch(() => null)
+    const list = body?.records
+    if (!Array.isArray(list)) fail(400, 'records 需为数组')
+    if (list.length > 5000) fail(413, '单次同步记录过多')
+    let accepted = 0
+    for (const r of list) {
+      if (
+        !r ||
+        typeof r.record_id !== 'string' ||
+        typeof r.date !== 'string' ||
+        typeof r.practice_item_id !== 'string' ||
+        typeof r.updated_at !== 'number'
+      ) {
+        continue // 跳过非法条目，不打断整批
+      }
+      const completed = r.completed ? 1 : 0
+      // 双键 (date, practice_item_id) 全局唯一：同一练习项同一天只留一条，
+      // 与前端 mergeRemoteEntries 的决胜规则一致（updated_at 新者胜，同刻 record_id 小者胜）。
+      const twin = await env.DB
+        .prepare('SELECT record_id, updated_at FROM user_records WHERE user_id = ? AND date = ? AND practice_item_id = ?')
+        .bind(auth.uid, r.date, r.practice_item_id)
+        .first()
+      if (!twin) {
+        await env.DB
+          .prepare('INSERT INTO user_records (user_id, record_id, date, practice_item_id, completed, updated_at) VALUES (?,?,?,?,?,?)')
+          .bind(auth.uid, r.record_id, r.date, r.practice_item_id, completed, r.updated_at)
+          .run()
+        accepted += 1
+      } else if (r.updated_at > twin.updated_at || (r.updated_at === twin.updated_at && r.record_id < twin.record_id)) {
+        // 本地记录更新（或跨设备双胞胎裁决胜出）：替换旧记录
+        await env.DB
+          .prepare('DELETE FROM user_records WHERE user_id = ? AND record_id = ?')
+          .bind(auth.uid, twin.record_id)
+          .run()
+        await env.DB
+          .prepare('INSERT INTO user_records (user_id, record_id, date, practice_item_id, completed, updated_at) VALUES (?,?,?,?,?,?)')
+          .bind(auth.uid, r.record_id, r.date, r.practice_item_id, completed, r.updated_at)
+          .run()
+        accepted += 1
+      }
+      // 否则：云端已有更新版本，忽略本条
+    }
+    return json({ ok: true, accepted }, 200, cors)
   }
 
   // ── 文件 ──

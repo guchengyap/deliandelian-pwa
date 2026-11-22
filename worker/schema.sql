@@ -32,5 +32,19 @@ CREATE TABLE IF NOT EXISTS user_files (
 );
 CREATE INDEX IF NOT EXISTS idx_user_files_user ON user_files(user_id);
 
+-- 用户打卡记录表：打卡状态随账户云端同步（换设备/换浏览器可恢复）。
+-- 严格按 user_id 隔离：admin 个人打卡只属 admin 自身，游客/其他用户不可见；
+-- 未登录游客无 token，天然无法读写本表——游客本地打卡仅作当前设备试用。
+CREATE TABLE IF NOT EXISTS user_records (
+  user_id          TEXT NOT NULL,
+  record_id        TEXT NOT NULL,         -- 前端生成 uuid（跨设备幂等键）
+  date             TEXT NOT NULL,         -- YYYY-MM-DD（前端本地时区生成）
+  practice_item_id TEXT NOT NULL,         -- 练习二级项 id
+  completed        INTEGER NOT NULL,      -- 0 / 1
+  updated_at       INTEGER NOT NULL,      -- Date.now()，同步合并的决胜键
+  PRIMARY KEY (user_id, record_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_records_user_date ON user_records(user_id, date);
+
 -- 管理员的默认模板空间行（user_id='__admin__'）由 Worker 首次请求时自动播种，
 -- 或在管理员首次保存维护内容时写入；无需手动 INSERT。

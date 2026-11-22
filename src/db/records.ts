@@ -1,16 +1,18 @@
 import { db, type RecordEntry } from './db'
 import { uuid } from '../lib/uuid'
+import { cloudReady } from '../lib/auth'
 
 /**
  * 打卡数据不变量（多用户隔离的根基，改动前必读）：
  *
- * 1. 打卡记录只存在于「当前空间的本地 IndexedDB」records 表，永不上传云端——
- *    云端 user_spaces 只同步 {level1, level2} 模板结构（见 cloudSpace.ts 与
- *    worker 的 validateSpaceData），任何打卡状态都没有网络通道。
+ * 1. 打卡记录写「当前空间的本地 IndexedDB」records 表；登录用户（cloudReady()）
+ *    同时把最新状态写入 syncQueue，由 recordSync 异步上推云端 user_records，
+ *    换设备/换浏览器登录同一账号即可拉回。游客（无 token）不写 syncQueue、不上传，
+ *    其本地打卡仅当前设备试用。
  * 2. 库按用户隔离：登录用户为 liansheng-u-<uid8>，游客/未登录为本机 liansheng
  *    （见 space.ts）。切换账号 = 切换整个库，天然互不干扰。
  * 3. 新用户/新库首次启动只写入种子模板（seedIfEmpty），records 从零开始，
- *    不继承任何人的历史打卡。
+ *    云端不携带任何人的打卡历史（user_records 按 user_id 隔离）。
  * 4. 后端接口全部从 JWT 解析 user_id 过滤数据，不信任客户端传入的身份。
  */
 
@@ -30,9 +32,19 @@ function findOne(date: string, itemId: string): Promise<RecordEntry | undefined>
 const twinKey = (r: Pick<RecordEntry, 'date' | 'practice_item_id'>) =>
   `${r.date}|${r.practice_item_id}`
 
+/** 打卡变更后触发云端上推（异步、防抖、失败静默——由 recordSync 统一提示）。 */
+function scheduleFlush(): void {
+  if (!cloudReady()) return
+  // 动态 import 打破 recordSync ↔ records 的静态循环；内部自带互斥与离线跳过。
+  void import('../lib/recordSync')
+    .then((m) => m.flushPendingSync())
+    .catch(() => {})
+}
+
 /**
- * 设置某天某项目完成状态，幂等 upsert，仅写本地 records 表。
+ * 设置某天某项目完成状态，幂等 upsert。
  * 关闭时不新增记录（避免空白行），已有记录则保留并置 completed=false。
+ * 登录用户：把最新状态写入待同步队列，联网后上推云端（换设备可恢复）。
  */
 export async function setCompletion(
   itemId: string,
@@ -40,22 +52,31 @@ export async function setCompletion(
   completed: boolean,
 ): Promise<void> {
   const now = Date.now()
-  await db.transaction('rw', db.records, async () => {
+  await db.transaction('rw', db.records, db.syncQueue, async () => {
     const existing = await findOne(date, itemId)
+    let latest: RecordEntry | null = null
     if (existing) {
       if (existing.completed === completed) return
       await db.records.update(existing.record_id, { completed, updated_at: now })
+      latest = { ...existing, completed, updated_at: now }
     } else {
       if (!completed) return
-      await db.records.add({
+      const rec: RecordEntry = {
         record_id: uuid(),
         date,
         practice_item_id: itemId,
         completed: true,
         updated_at: now,
-      })
+      }
+      await db.records.add(rec)
+      latest = rec
+    }
+    // 仅登录用户入队；游客的试用打卡只留本机，绝不进入任何账号。
+    if (latest && cloudReady()) {
+      await db.syncQueue.put({ key: twinKey(latest), record: latest })
     }
   })
+  scheduleFlush()
 }
 
 /** 切换完成状态，返回切换后的值。 */

@@ -61,6 +61,14 @@ export function isLoggedIn(): boolean {
   return !!getToken()
 }
 
+/**
+ * 是否具备「随账户云端同步」的条件：云端地址已配置且已登录。
+ * 游客（无 token）在纯本地模式下打卡仅当前设备试用，不回写云端。
+ */
+export function cloudReady(): boolean {
+  return !!CLOUD_API_BASE && isLoggedIn()
+}
+
 /** 应用入口调用：读缓存 → 云端校验/刷新；失败清 Token 回退游客。 */
 export async function initAuth(): Promise<void> {
   const cached = readCachedUser()

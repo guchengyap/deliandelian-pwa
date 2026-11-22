@@ -17,6 +17,7 @@ function mockD1() {
   const usersByName = new Map() // username/email/phone(lower) -> id
   const spaces = new Map()
   const files = new Map()
+  const records = new Map() // `${user_id}|${record_id}` -> record row
   const like = (sql, s) => sql.toLowerCase().includes(s)
 
   function prepare(sql) {
@@ -42,6 +43,14 @@ function mockD1() {
           let s = 0
           for (const f of files.values()) if (f.user_id === api._p[0]) s += f.size
           return { s }
+        }
+        if (like(sql, 'from user_records')) {
+          // 双键查询：WHERE user_id = ? AND date = ? AND practice_item_id = ?
+          const [uid, date, itemId] = api._p
+          const row = [...records.values()].find(
+            (r) => r.user_id === uid && r.date === date && r.practice_item_id === itemId,
+          )
+          return row ? { record_id: row.record_id, updated_at: row.updated_at } : null
         }
         if (like(sql, 'select id, name, mime, size, created_at')) return null
         if (like(sql, 'select name, mime, size, data')) return files.get(api._p[0]) ?? null
@@ -77,6 +86,16 @@ function mockD1() {
           files.delete(api._p[0])
           return { success: true }
         }
+        if (like(sql, 'insert into user_records')) {
+          const [user_id, record_id, date, practice_item_id, completed, updated_at] = api._p
+          records.set(`${user_id}|${record_id}`, { user_id, record_id, date, practice_item_id, completed, updated_at })
+          return { success: true }
+        }
+        if (like(sql, 'delete from user_records')) {
+          // DELETE FROM user_records WHERE user_id = ? AND record_id = ?
+          records.delete(`${api._p[0]}|${api._p[1]}`)
+          return { success: true }
+        }
         throw new Error('mockD1 未实现的 run: ' + sql)
       },
       async all() {
@@ -87,12 +106,18 @@ function mockD1() {
             .map(({ data, ...rest }) => rest)
           return { results: rows }
         }
+        if (like(sql, 'from user_records')) {
+          const rows = [...records.values()]
+            .filter((r) => r.user_id === api._p[0])
+            .sort((a, b) => a.updated_at - b.updated_at)
+          return { results: rows }
+        }
         throw new Error('mockD1 未实现的 all: ' + sql)
       },
     }
     return api
   }
-  return { prepare, _files: files, _spaces: spaces, _users: users }
+  return { prepare, _files: files, _spaces: spaces, _users: users, _records: records }
 }
 
 const env = { DB: mockD1(), JWT_SECRET: 'test-secret-123', ALLOWED_ORIGINS: 'https://guchengyap.github.io' }
@@ -354,6 +379,86 @@ console.log('T15 admin 删除模板文件时同步清理公共记录引用')
   check('模板中已无该文件引用', !stillThere)
   const seqClean = !after.level2.some((i) => (i.config?.sequence ?? []).includes('local-x'))
   check('config.sequence 同步清理', seqClean)
+}
+
+console.log('T16 打卡记录：云端同步 / 双键去重 / 多用户隔离')
+{
+  // 未登录被拒
+  const noAuth = await call('/api/records')
+  check('未登录 GET 401', noAuth.status === 401)
+
+  // admin 上推两条打卡
+  const put = await call('/api/records', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      records: [
+        { record_id: 'rec-a1', date: '2026-11-22', practice_item_id: 'item-1', completed: true, updated_at: 1000 },
+        { record_id: 'rec-a2', date: '2026-11-22', practice_item_id: 'item-2', completed: true, updated_at: 2000 },
+      ],
+    }),
+  })
+  check('admin PUT 200 + accepted=2', put.status === 200 && put.body?.accepted === 2, JSON.stringify(put.body))
+
+  // 拉取 admin 记录
+  const adminRecs = await call('/api/records', { headers: { Authorization: `Bearer ${adminToken}` } })
+  check('admin GET 2 条', adminRecs.body?.records?.length === 2, JSON.stringify(adminRecs.body))
+  check('completed 转 boolean', adminRecs.body?.records?.every((r) => r.completed === true))
+
+  // 用户2 初始无记录（新用户不继承 admin 打卡）
+  const user2Recs = await call('/api/records', { headers: { Authorization: `Bearer ${user2Token}` } })
+  check('新用户不继承 admin 打卡', user2Recs.body?.records?.length === 0, JSON.stringify(user2Recs.body))
+
+  // 用户2 上推自己的打卡，互不干扰
+  await call('/api/records', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${user2Token}` },
+    body: JSON.stringify({
+      records: [{ record_id: 'rec-u1', date: '2026-11-22', practice_item_id: 'item-1', completed: true, updated_at: 500 }],
+    }),
+  })
+  const adminAfter = await call('/api/records', { headers: { Authorization: `Bearer ${adminToken}` } })
+  check('user2 打卡不串到 admin', adminAfter.body?.records?.length === 2)
+  const user2After = await call('/api/records', { headers: { Authorization: `Bearer ${user2Token}` } })
+  check('user2 只见自己 1 条', user2After.body?.records?.length === 1 && user2After.body?.records?.[0]?.record_id === 'rec-u1')
+
+  // 双键去重：admin 对 item-1 再推一条更新的（不同 record_id），应替换旧记录
+  await call('/api/records', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      records: [{ record_id: 'rec-a1b', date: '2026-11-22', practice_item_id: 'item-1', completed: false, updated_at: 3000 }],
+    }),
+  })
+  const dedup = await call('/api/records', { headers: { Authorization: `Bearer ${adminToken}` } })
+  const item1 = dedup.body?.records?.filter((r) => r.practice_item_id === 'item-1')
+  check('双键去重：item-1 只剩 1 条且为新版本', item1?.length === 1 && item1[0].record_id === 'rec-a1b' && item1[0].completed === false, JSON.stringify(item1))
+
+  // 旧版本上推应被忽略（云端保留新版本）
+  const stale = await call('/api/records', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      records: [{ record_id: 'rec-stale', date: '2026-11-22', practice_item_id: 'item-1', completed: true, updated_at: 1 }],
+    }),
+  })
+  check('旧版本被忽略 accepted=0', stale.body?.accepted === 0, JSON.stringify(stale.body))
+  const afterStale = await call('/api/records', { headers: { Authorization: `Bearer ${adminToken}` } })
+  const item1Keep = afterStale.body?.records?.find((r) => r.practice_item_id === 'item-1')
+  check('云端仍保留新版本', item1Keep?.record_id === 'rec-a1b' && item1Keep?.completed === false)
+
+  // 非法条目被跳过，不打断整批
+  const mixed = await call('/api/records', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      records: [
+        { record_id: 'rec-x', date: '2026-11-23', practice_item_id: 'item-9', completed: true, updated_at: 4000 },
+        { bad: true },
+      ],
+    }),
+  })
+  check('非法条目跳过、合法条目写入', mixed.status === 200 && mixed.body?.accepted === 1, JSON.stringify(mixed.body))
 }
 
 console.log(`\n结果：${pass} 通过 / ${failed} 失败`)

@@ -7,9 +7,10 @@ import { dbName, SPACE } from '../lib/space'
  * - 每个用户一个独立库：登录用户 liansheng-u-<uid8>，游客/未登录为本机 liansheng
  *   （库由 dbName(SPACE) 决定，SPACE 在模块加载时按登录态确定）。
  * - level1/level2 是练习「模板结构」，可被云端模板同步覆盖（仅登录/游客各自的
- *   空间范围内）；records 是「打卡记录」，只属于本库，没有任何上传通道。
+ *   空间范围内）；records 是「打卡记录」，登录用户的打卡随账户云端同步
+ *   （见 recordSync.ts），游客打卡只留本机、永不上传。
  * - 因此：admin 维护默认模板不会带上自己的打卡；游客打卡只留在游客本机；
- *   新用户首次初始化只有干净模板 + 空打卡。
+ *   新用户首次初始化只有干净模板 + 空打卡（云端不携带任何人的打卡历史）。
  */
 
 export type FileType = 'audio' | 'image'
@@ -73,7 +74,7 @@ export interface ConfigEntry {
   value: string
 }
 
-/** 打卡记录：每项每天至多一条，completed 可来回切换；仅存本地，永不上传。 */
+/** 打卡记录：每项每天至多一条，completed 可来回切换；登录用户随账户云端同步。 */
 export interface RecordEntry {
   /** crypto.randomUUID() */
   record_id: string
@@ -85,12 +86,20 @@ export interface RecordEntry {
   updated_at: number
 }
 
+/** 待同步队列条目：打卡变更后把最新状态按 twinKey 存一份，联网 flush 上推云端。 */
+export interface SyncQueueEntry {
+  /** `${date}|${practice_item_id}`，业务唯一键，重复打卡/取消只保留最新一条。 */
+  key: string
+  record: RecordEntry
+}
+
 class AppDatabase extends Dexie {
   level1!: EntityTable<Level1Item, 'id'>
   level2!: EntityTable<Level2Item, 'id'>
   practiceRecords!: EntityTable<PracticeRecord, 'id'>
   records!: EntityTable<RecordEntry, 'record_id'>
   config!: EntityTable<ConfigEntry, 'key'>
+  syncQueue!: EntityTable<SyncQueueEntry, 'key'>
 
   constructor() {
     super(dbName(SPACE))
@@ -110,8 +119,11 @@ class AppDatabase extends Dexie {
     this.version(4).stores({
       config: 'key',
     })
-    // v5 曾声明 outbox（已废弃的本地电脑同步服务遗留）：打卡只存 records，
-    // 不再有发送队列。旧库里残留的 outbox 表无害，不再声明、不再读写。
+    // v6 待同步队列：打卡变更的云端上推缓冲区（key 即 twinKey，登录用户才有）。
+    // v5 曾声明 outbox（已废弃的本地电脑同步服务遗留）：不再声明、不再读写。
+    this.version(6).stores({
+      syncQueue: 'key',
+    })
   }
 }
 

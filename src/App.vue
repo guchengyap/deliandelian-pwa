@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { db, seedIfEmpty, type Level1Item, type Level2Item } from './db/db'
 import { completedIdsOn, dateKey, setCompletion, toggleCompletion, uncompleteAllOn } from './db/records'
 import { stopAll } from './lib/audioSession'
 import { buildTaskGroups, flattenTasks } from './lib/tasks'
 import { auth, initAuth } from './lib/auth'
+import { installSyncListeners, pullRecords } from './lib/recordSync'
 import {
   canWriteCloud,
   cloudAvailable,
@@ -346,16 +347,29 @@ function closeOverlay() {
   overlay.value = 'none'
 }
 
+/** 打卡云端同步失败/恢复提示：离线或网络异常时告知"已存本机、联网自动同步"。 */
+function onSyncError(e: Event) {
+  const detail = (e as CustomEvent<{ message?: string }>).detail
+  if (detail?.message) showToast(detail.message)
+}
+
 onMounted(async () => {
+  installSyncListeners()
+  window.addEventListener('liansheng:sync-error', onSyncError)
   await initAuth()
   try {
     await seedIfEmpty() // 离线首启兜底
     await loadCloudCatalog() // 云端可用时以云端空间为准（游客=默认模板，登录=专属空间）
+    await pullRecords() // 登录用户拉取云端打卡（多端一致）；游客/纯本地自动短路
     await loadToday()
     await reloadCatalog()
   } finally {
     ready.value = true
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('liansheng:sync-error', onSyncError)
 })
 </script>
 

@@ -17,6 +17,7 @@ function mockD1() {
   const usersByName = new Map()
   const spaces = new Map()
   const files = new Map()
+  const records = new Map()
   const like = (sql, s) => sql.toLowerCase().includes(s)
   function prepare(sql) {
     const api = {
@@ -40,6 +41,13 @@ function mockD1() {
           let s = 0
           for (const f of files.values()) if (f.user_id === api._p[0]) s += f.size
           return { s }
+        }
+        if (like(sql, 'from user_records')) {
+          const [uid, date, itemId] = api._p
+          const row = [...records.values()].find(
+            (r) => r.user_id === uid && r.date === date && r.practice_item_id === itemId,
+          )
+          return row ? { record_id: row.record_id, updated_at: row.updated_at } : null
         }
         if (like(sql, 'select name, mime, size, data')) return files.get(api._p[0]) ?? null
         if (like(sql, 'from user_files where id')) {
@@ -73,9 +81,24 @@ function mockD1() {
           files.delete(api._p[0])
           return { success: true }
         }
+        if (like(sql, 'insert into user_records')) {
+          const [user_id, record_id, date, practice_item_id, completed, updated_at] = api._p
+          records.set(`${user_id}|${record_id}`, { user_id, record_id, date, practice_item_id, completed, updated_at })
+          return { success: true }
+        }
+        if (like(sql, 'delete from user_records')) {
+          records.delete(`${api._p[0]}|${api._p[1]}`)
+          return { success: true }
+        }
         throw new Error('run: ' + sql)
       },
       async all() {
+        if (like(sql, 'from user_records')) {
+          const rows = [...records.values()]
+            .filter((r) => r.user_id === api._p[0])
+            .sort((a, b) => a.updated_at - b.updated_at)
+          return { results: rows }
+        }
         const rows = [...files.values()]
           .filter((f) => f.user_id === api._p[0])
           .sort((a, b) => b.created_at - a.created_at)
