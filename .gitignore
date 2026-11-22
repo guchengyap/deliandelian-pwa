@@ -33,3 +33,5 @@ sync/sync-data*.json
 worker/.dev.vars
 worker/.wrangler/
 .wrangler/
+worker/.cf-token
+worker/.cf-account

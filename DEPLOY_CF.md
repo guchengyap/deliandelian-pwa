@@ -1,17 +1,29 @@
 # Cloudflare Workers + D1 后端部署指引
 
-> 前端（GitHub Pages）已自动部署；本文把后端跑起来并接通。
-> 全程约 10 分钟。**第 1 步需要在浏览器完成 Cloudflare 账号注册**，其余都在命令行。
+> **当前部署状态（2026-11-22 已完成）**
+>
+> | 项目 | 值 |
+> | --- | --- |
+> | Cloudflare 账号 | `levein1998@gmail.com`（已 OAuth 授权 wrangler） |
+> | Worker 名称 | `deliandelian-api` |
+> | workers.dev 地址 | `https://deliandelian-api.deliandelian.workers.dev`（**境外可用；中国大陆被 DNS 污染，不可用**） |
+> | workers.dev 子域 | `deliandelian`（已注册） |
+> | D1 数据库 | `deliandelian` · id `9e644177-84e7-4254-aa64-8c70e943578e`（三张表已建） |
+> | JWT_SECRET | 已写入（Cloudflare Secret，不在仓库） |
+> | 前端状态 | `src/config.ts` 仍为空串 = **纯本地模式**（等绑定自有域名后启用云端） |
+>
+> 一键部署脚本：`node worker/deploy.mjs`（已登录状态下可重复执行，幂等）。
+> **下一步只剩「绑定自有域名」**——见文末第 8 节。
 
 ---
 
 ## 0. 架构速览
 
 ```
-GitHub Pages（前端 PWA，已上线）
+GitHub Pages（前端 PWA，已上线，中国大陆实测 1.07s 可访问）
         │  HTTPS + Bearer Token
         ▼
-Cloudflare Worker（本仓库 worker/ 目录：注册/登录/空间读写/文件上传，全球边缘节点，国内可达性远好于 github.io）
+Cloudflare Worker（本仓库 worker/ 目录：注册/登录/空间读写/文件上传）
         │  D1 绑定
         ▼
 Cloudflare D1（SQLite：users / user_spaces / user_files 三张表）
@@ -19,6 +31,7 @@ Cloudflare D1（SQLite：users / user_spaces / user_files 三张表）
 
 - 单用户云盘限额 **120 MB**，前后端双重校验。
 - 第一个注册的账号自动成为 **管理员（admin）**，其维护内容即「默认模板空间」；游客与所有新用户都从它复制初始数据。
+- ⚠️ **`*.workers.dev` 域名在中国大陆被 DNS 污染（解析到 Facebook IP），必须绑定自有域名才能给大陆用户使用。**
 
 ---
 
@@ -123,6 +136,56 @@ git push
 
 1. 打开应用 → 设置 → 登录 / 注册 → 注册（用户名、邮箱、手机号、密码 + 可选头像）。
 2. 注册成功后用该账号进维护模式，你的修改会保存为「默认模板」，游客和新用户都以它为初始内容。
+
+---
+
+## 8. 中国大陆访问：绑定自有域名（唯一剩余步骤）
+
+**为什么必须做**：实测 `deliandelian-api.deliandelian.workers.dev` 在大陆被 DNS 污染（解析到 `31.13.95.17` 等 Facebook IP，连接超时）；而 Cloudflare 的普通域名在同一网络下 200 OK（3.7s），所以换自有域名即可解决。
+
+### 8.1 买域名（约 ¥1~10 首年）
+
+在任意注册商下单即可（需要实名认证，支付宝/微信付款）：
+
+- 阿里云 / 腾讯云：`.top`、`.xyz` 常有 1 元首年活动（续费约 ¥20~30/年）
+- 想用 `.com`：约 ¥55~70/年
+
+> 境外托管（Cloudflare）**不需要 ICP 备案**，域名注册后可直接使用。
+
+### 8.2 把域名接入 Cloudflare（免费计划）
+
+1. Cloudflare 控制台 → **Add a site** → 输入域名 → 选 **Free** 计划
+2. Cloudflare 给你两条 NS（形如 `xxx.ns.cloudflare.com`）
+3. 回到域名注册商的 DNS 设置，把 NS 改成这两条
+4. 等待生效（通常 5 分钟~2 小时，控制台站点状态变为 **Active**）
+
+### 8.3 给 Worker 绑定自定义域名
+
+1. Cloudflare 控制台 → **Workers & Pages** → `deliandelian-api` → **Settings** → **Domains & Routes**
+2. **Add** → **Custom Domain** → 填 `api.你的域名`（例如 `api.deliandelian.top`）
+3. 保存后等待 1~2 分钟证书签发（状态变 Active）
+
+### 8.4 回填前端地址并上线
+
+```ts
+// src/config.ts
+export const CLOUD_API_BASE: string = 'https://api.你的域名'
+```
+
+```bash
+git add src/config.ts && git commit -m "cloud: 启用自有域名后端" && git push
+```
+
+### 8.5 验证（在项目根目录）
+
+```bash
+curl https://api.你的域名/api/health
+# 期望：{"ok":true,...}
+```
+
+通了之后打开应用 → 设置页 → 登录/注册 → **立即注册的第一个账号即为管理员**。
+
+> 若日后前端也换成自己的域名，记得把新来源加进 `worker/wrangler.toml` 的 `ALLOWED_ORIGINS` 并重新 `npx wrangler deploy`。
 
 ---
 
