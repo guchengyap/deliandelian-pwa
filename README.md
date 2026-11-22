@@ -40,7 +40,7 @@ https://<用户名>.github.io/<仓库名>/bob/
 两者共享同一份静态资源与同一 Origin，但数据互不干扰：
 
 - 应用按 URL 最后一段推导出「空间名」，IndexedDB 库名（`liansheng-alice` / `liansheng-bob`）与 OPFS 目录（`files-alice` / `files-bob`）都带空间前缀；
-- 根路径（`default` 空间）使用库名 `liansheng` 与目录 `files`；更名前的旧库会在首次启动时自动迁移到新库（旧库保留作回滚备份）；
+- 根路径（`default` 空间）使用库名 `liansheng` 与目录 `files`；
 - 电脑端同步服务按空间分库（`sync-data-alice.json` 等）并只向同空间客户端广播；
 - 从各自子路径「添加到主屏幕」后，启动地址仍是该子路径。
 

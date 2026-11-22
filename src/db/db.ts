@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
 import seedData from './seed.json'
-import { DEFAULT_SPACE, dbName, SPACE } from '../lib/space'
+import { dbName, SPACE } from '../lib/space'
 
 export type FileType = 'audio' | 'image'
 
@@ -113,82 +113,11 @@ class AppDatabase extends Dexie {
 
 export const db = new AppDatabase()
 
-// ── 旧库一次性迁移 ──────────────────────────────────────────────
-// 项目更名后 Dexie 库名随之改变，老用户本地数据仍留在旧库里。
-// 默认空间首次启动时把旧库全表复制到新库，避免打卡历史"凭空消失"。
-// 旧库复制后保留不删，作为回滚备份；新库已存在则永不重复迁移。
-
-/** 更名前的默认空间库名。仅迁移用，不要改动。 */
-const LEGACY_DB_NAME = 'deliandelian'
-
-function openRawDb(name: string): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(name)
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
-function readStore<T>(database: IDBDatabase, store: string): Promise<T[]> {
-  if (!database.objectStoreNames.contains(store)) return Promise.resolve([])
-  return new Promise((resolve, reject) => {
-    const req = database.transaction(store, 'readonly').objectStore(store).getAll()
-    req.onsuccess = () => resolve(req.result as T[])
-    req.onerror = () => reject(req.error)
-  })
-}
-
-/** 旧库有内容且新库尚未创建时执行迁移，返回是否已迁移。 */
-async function migrateLegacyDb(): Promise<boolean> {
-  if (SPACE !== DEFAULT_SPACE) return false
-  if (typeof indexedDB === 'undefined' || typeof indexedDB.databases !== 'function') return false
-  let legacy: IDBDatabase | null = null
-  try {
-    const names = new Set((await indexedDB.databases()).map((d) => d.name))
-    if (!names.has(LEGACY_DB_NAME)) return false
-    if (names.has(dbName(DEFAULT_SPACE))) return false
-
-    legacy = await openRawDb(LEGACY_DB_NAME)
-    const level1 = await readStore<Level1Item>(legacy, 'level1')
-    if (!level1.length) return false // 旧库只是空壳，走正常种子流程
-
-    const [level2, records, config, outbox, practiceRecords] = await Promise.all([
-      readStore<Level2Item>(legacy, 'level2'),
-      readStore<RecordEntry>(legacy, 'records'),
-      readStore<ConfigEntry>(legacy, 'config'),
-      readStore<OutboxEntry>(legacy, 'outbox'),
-      readStore<PracticeRecord>(legacy, 'practiceRecords'),
-    ])
-
-    await db.transaction(
-      'rw',
-      [db.level1, db.level2, db.records, db.config, db.outbox, db.practiceRecords],
-      async () => {
-        if (level1.length) await db.level1.bulkPut(level1)
-        if (level2.length) await db.level2.bulkPut(level2)
-        if (records.length) await db.records.bulkPut(records)
-        if (config.length) await db.config.bulkPut(config)
-        if (outbox.length) await db.outbox.bulkPut(outbox)
-        if (practiceRecords.length) await db.practiceRecords.bulkPut(practiceRecords)
-      },
-    )
-    console.info(`[db] 已从旧库迁移：${level1.length} 个一级项 / ${records.length} 条打卡`)
-    return true
-  } catch (e) {
-    // 迁移失败不能阻塞启动：退回"空新库 + 种子"，旧库原样保留。
-    console.warn('[db] 旧库迁移失败，按新库启动', e)
-    return false
-  } finally {
-    legacy?.close()
-  }
-}
-
 /**
  * 首次加载时写入种子。以 level1 是否为空判定，包在事务里保证原子性；
  * 重复调用安全，不会覆盖用户已有数据。
  */
 export async function seedIfEmpty(): Promise<void> {
-  if (await migrateLegacyDb()) return
   await db.transaction('rw', db.level1, db.level2, async () => {
     if ((await db.level1.count()) > 0) return
     // JSON 推导出的 type 是 string，这里按已知种子数据收窄到领域类型。

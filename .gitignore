@@ -28,6 +28,7 @@ _*
 
 # 同步服务器运行时数据（含个人打卡记录，严禁入库）
 sync/sync-data*.json
+sync/start-error.log
 
 # Cloudflare 本地开发产物与密钥（严禁入库）
 worker/.dev.vars

@@ -1,11 +1,39 @@
-' ç»ƒå£°åŠ©æ‰‹ Â· åŒæ­¥æœåŠ¡é™é»˜å¯åŠ¨å™¨ï¼ˆæ— é»‘çª—å£ï¼Œåå°è¿è¡Œï¼‰
-' ç”¨é€”ï¼šæ³¨å†Œåˆ° Windows å¯åŠ¨é¡¹åï¼Œç”µè„‘å¼€æœºå³è‡ªåŠ¨åœ¨åå°è¿è¡ŒåŒæ­¥æœåŠ¡ã€‚
-' å¸è½½ï¼šåˆ é™¤ã€Œå¯åŠ¨ã€æ–‡ä»¶å¤¹é‡Œçš„ã€Œç»ƒå£°åŠ©æ‰‹åŒæ­¥æœåŠ¡ã€å¿«æ·æ–¹å¼å³å¯ã€‚
-' æ‰‹åŠ¨å¯åŠ¨ä¸€æ¬¡ä¹Ÿå¯ä»¥ç›´æ¥åŒå‡»æœ¬æ–‡ä»¶ã€‚
+' Á·ÉùÖúÊÖ ¡¤ Í¬²½·şÎñ¾²Ä¬Æô¶¯Æ÷£¨ÎŞºÚ´°¿Ú£¬ºóÌ¨ÔËĞĞ£©
+' ÓÃÍ¾£º×¢²áµ½ Windows Æô¶¯Ïîºó£¬µçÄÔ¿ª»ú¼´×Ô¶¯ÔÚºóÌ¨ÔËĞĞÍ¬²½·şÎñ¡£
+' Ğ¶ÔØ£ºÉ¾³ı¡¸Æô¶¯¡¹ÎÄ¼ş¼ĞÀïµÄ¡¸Á·ÉùÖúÊÖÍ¬²½·şÎñ¡¹¿ì½İ·½Ê½¼´¿É¡£
+' ÊÖ¶¯Æô¶¯Ò»´ÎÒ²¿ÉÒÔÖ±½ÓË«»÷±¾ÎÄ¼ş¡£
 Option Explicit
-Dim sh, dir
+Dim sh, fso, dir, node, base, folder, logf
+
 Set sh = CreateObject("WScript.Shell")
-dir = Replace(WScript.ScriptFullName, "\start-sync-hidden.vbs", "")
+Set fso = CreateObject("Scripting.FileSystemObject")
+dir = fso.GetParentFolderName(WScript.ScriptFullName)
 sh.CurrentDirectory = dir
-' å‚æ•° 0 = éšè—çª—å£ï¼›False = ä¸ç­‰å¾…è¿›ç¨‹ç»“æŸ
-sh.Run "cmd /c node server.mjs", 0, False
+
+' ÒÀ´ÎÑ°ÕÒ¿ÉÓÃµÄ Node ÔËĞĞÊ±£¨ÏµÍ³°²×°ÓÅÏÈ£¬Æä´Î WorkBuddy ×Ô´ø£©
+node = ""
+If fso.FileExists("C:\Program Files\nodejs\node.exe") Then
+  node = "C:\Program Files\nodejs\node.exe"
+End If
+If node = "" Then
+  base = sh.ExpandEnvironmentStrings("%LOCALAPPDATA%") & "\Programs\nodejs\node.exe"
+  If fso.FileExists(base) Then node = base
+End If
+If node = "" Then
+  base = sh.ExpandEnvironmentStrings("%USERPROFILE%") & "\.workbuddy\binaries\node\versions"
+  If fso.FolderExists(base) Then
+    For Each folder In fso.GetFolder(base).SubFolders
+      If fso.FileExists(folder.Path & "\node.exe") Then node = folder.Path & "\node.exe"
+    Next
+  End If
+End If
+
+If node = "" Then
+  Set logf = fso.CreateTextFile(dir & "\start-error.log", True)
+  logf.WriteLine "Î´ÕÒµ½ Node.js ÔËĞĞÊ±£¬Í¬²½·şÎñÎŞ·¨Æô¶¯£º" & Now
+  logf.Close
+  WScript.Quit 1
+End If
+
+' ²ÎÊı 0 = Òş²Ø´°¿Ú£»False = ²»µÈ´ı½ø³Ì½áÊø
+sh.Run """" & node & """ """ & dir & "\server.mjs""", 0, False
