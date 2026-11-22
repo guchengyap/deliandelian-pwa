@@ -1,111 +1,56 @@
-# 练声助手还没取名字
+# 练声助手
 
-纯静态的练声跟练与打卡 PWA。前端托管在 GitHub Pages，打卡与练习记录存浏览器 IndexedDB，上传的音频/图片存 OPFS；可选的 Cloudflare Worker + D1 提供账号与云端空间。**不需要在自己的电脑上常驻运行任何服务。**
+[![Deploy to GitHub Pages](https://github.com/guchengyap/liansheng/actions/workflows/deploy.yml/badge.svg)](https://github.com/guchengyap/liansheng/actions/workflows/deploy.yml)
 
-- 线上地址：https://guchengyap.github.io/liansheng/
-- 仓库：https://github.com/guchengyap/liansheng
+手机跟练打卡 PWA：内置练习目录，跟着音频逐项练，播完自动打卡。数据本地优先，登录后定制内容与素材存云端，**无需在任何电脑上常驻运行服务**。
 
-## 访问与安装
+**线上使用** → https://guchengyap.github.io/liansheng/
 
-打开线上地址即可使用。手机浏览器菜单里「添加到主屏幕」，之后像 App 一样全屏打开，断网也能用（Service Worker 缓存）。
+手机浏览器打开后点「添加到主屏幕」，即可像 App 一样全屏使用，断网也能练。
 
-## 本地开发（只在改代码时需要）
+## 功能
 
-```bash
-npm ci         # 首次或依赖变更后
-npm run dev    # 本地预览 http://localhost:5173，用完 Ctrl+C 关掉
-npm run build  # 类型检查 + 生成 dist/（发布由 CI 完成，本地不必构建）
-```
+- **跟练** — 一屏一项，音频自动连播，播完自动打卡并跳下一项
+- **打卡** — 圆勾单击打卡 / 再点取消；当日页支持一键全打、一键清零
+- **统计** — 今日进度、本周柱状、月历、全年热力图
+- **维护模式** — 登录后可编辑项目结构、上传音频 / 图片（每人 120MB 云盘，超额可就地清理）
+- **多主题** — 冰蓝 / 落日橙，自动适配深色模式
+- **离线可用** — Service Worker 全量预缓存，装一次到处用
 
-`npm run dev` 只是临时的开发服务器，不常驻、不开机自启。
+## 数据存在哪
+
+| 数据 | 位置 |
+| --- | --- |
+| 打卡记录 | 本机浏览器（按账号分库隔离，永不上传） |
+| 练习模板与素材 | 游客 = 内置默认模板；登录 = 自己的云端空间 |
+
+换设备：登录账号带走定制内容；打卡记录用「设置 → 导出 JSON 备份」迁移。
 
 ## 改代码并发布
 
-任选一种，push 到 `main` 后 GitHub Actions 自动构建部署，通常 1~2 分钟上线。
-
-### 方式一：本地改（改多处时推荐）
+push 到 `main` 后 GitHub Actions 自动构建上线（约 1~2 分钟）：
 
 ```bash
-cd "D:\WorkBuddy\workspaces\3 - 音乐\liansheng"
-git pull                    # 先同步，避免冲突
-# ……改代码……
-npm run dev                 # 需要时本地预览
-git add -A
-git commit -m "feat: 说明改了什么"
-git push
+git pull
+# ……改代码（需要预览就 npm run dev）……
+git add -A && git commit -m "feat: 改了什么" && git push
 ```
 
-### 方式二：GitHub 网页改（改文案、调参数最省事）
+也可以直接在 GitHub 网页编辑文件后提交，效果相同。
 
-打开仓库 → 点进文件 → 右上角铅笔图标 → 编辑 → 页面底部 **Commit changes**（提交到 `main`）。提交即触发构建，不需要本地环境。
+- 版本号只改 `package.json` 的 `"version"`，构建时间与 commit hash 自动注入
+- 上线后在应用内「设置 → 应用版本」核对，如 `v1.0.0 · 2026-11-22 18:38 · 345fb0b`
 
-### 确认发布结果
+## 技术栈
 
-- 构建日志：https://github.com/guchengyap/liansheng/actions —— 最近一次 `Deploy to GitHub Pages` 变绿即成功
-- 线上页面：https://guchengyap.github.io/liansheng/
-- 版本核对：应用内「设置 → 应用版本」显示 `v版本号 · 构建时间 · commit`（如 `v1.0.0 · 2026-11-22 18:32 · 4a3c4ca`）；手机端没立刻变就关掉应用重开一次
+Vite · Vue 3 · TypeScript · Dexie (IndexedDB) · OPFS · vite-plugin-pwa
 
-## 版本规范
+可选后端：Cloudflare Workers + D1（部署见 [DEPLOY_CF.md](DEPLOY_CF.md)，当前前端为纯本地模式，未接入时不影响任何功能）。
 
-- 语义化版本号的**唯一来源**是 `package.json` 的 `"version"` 字段，发版时只改这一处（如 `1.0.0` → `1.1.0`）。
-- 构建时间与短 commit hash 在构建时自动注入（`vite.config.ts`），无需手工维护。
-- 建议：修 bug 改末位（`1.0.1`），加功能改进位（`1.1.0`），不兼容改动进大版本（`2.0.0`）。
+## 更多文档
 
-## 数据归属与隔离（打卡不串号）
-
-打卡记录（records）与练习模板（level1/level2）是两类数据，归属严格分离：
-
-| 数据 | 存储位置 | 隔离方式 |
-| --- | --- | --- |
-| 打卡记录 | 各设备上对应空间的本地 IndexedDB | **永不上传**：云端没有任何打卡表与接口 |
-| 练习模板 + 素材文件 | 登录后云端 D1（`user_spaces` / `user_files`） | 后端一律从 JWT 解出 `user_id` 过滤，不信任客户端 |
-
-由此保证：
-
-- **游客**打卡只留在自己浏览器的本地库（`liansheng`），不可能写入全站默认模板（云端 `__admin__` 空间是只读公开接口）；
-- **登录用户**本地库为 `liansheng-u-<uid8>`，与游客库、其他用户库完全独立；退出登录清空凭证并整页刷新，切换账号不会看到别人的打卡；
-- **admin 维护模式**更新的是全站默认模板（`__admin__` 空间的项目结构与素材），admin 个人的打卡记录只在自己设备的本地库里，不会作为默认状态展示给任何用户；
-- **新用户**首次初始化云端空间时仅复制默认模板的项目结构，不继承任何人的历史打卡——新用户的打卡从零开始。
-
-## 部署到 GitHub Pages
-
-1. 仓库 **Settings → Pages**，Source 选 **GitHub Actions**（已配置好）。
-2. `.github/workflows/deploy.yml`：push 到 `main` 即自动构建部署，也可在 Actions 页手动触发。
-3. 部署地址形如 `https://<用户名>.github.io/<仓库名>/`，工作流已自动把 `BASE_PATH` 设为 `/<仓库名>/`，无需手改。
-
-若用自定义域名根部署，把工作流里的 `BASE_PATH` 改成 `/`。
-
-`vite-plugin-pwa` 使用 `registerType: 'autoUpdate'`，Service Worker 在后台拉取新版本并静默接管，用户下次打开即为最新版。
-
-## 多用户子路径
-
-同一站点可为每个人分配独立子路径，例如：
-
-```
-https://<用户名>.github.io/<仓库名>/alice/
-https://<用户名>.github.io/<仓库名>/bob/
-```
-
-两者共享同一份静态资源与同一 Origin，但数据互不干扰：
-
-- 应用按 URL 最后一段推导出「空间名」，IndexedDB 库名（`liansheng-alice` / `liansheng-bob`）与 OPFS 目录（`files-alice` / `files-bob`）都带空间前缀；
-- 根路径（`default` 空间）使用库名 `liansheng` 与目录 `files`；
-- 可选的本地同步服务按空间分库（`sync-data-alice.json` 等）并只向同空间客户端广播；
-- 从各自子路径「添加到主屏幕」后，启动地址仍是该子路径。
-
-> 说明：这是应用层的隔离，方便不同人共用一套部署；由于同属一个 Origin，它不是安全沙箱。需要真正的浏览器级隔离请改用不同子域名或不同站点。
-
-`/<仓库名>/alice/` 这类路径由构建生成的 `404.html` 回退到应用入口（GitHub Pages 规则），无需额外服务器配置。
-
-## 备份与迁移
-
-设置页 →「备份与恢复」可导出/导入 zip，包含 `records.json`、`practice-items.json` 与 `files/`（用户上传的文件）。导入时记录按 `record_id` + `updated_at` 合并，练声项整体恢复，编号按 `order` 重建。
-
-## 目录结构
-
-- `src/db/` — Dexie 数据模型、种子数据、记录合并
-- `src/lib/` — 音频会话、OPFS、备份、空间隔离、账号与云端客户端、PWA 适配
-- `src/components/` — 跟练、统计、维护、设置、帮助教程
-- `worker/` — Cloudflare Worker + D1 后端（部署见 `DEPLOY_CF.md`），线上待命，前端未接入时自动回退本地模式
-- `sync/` — 可选的局域网同步服务（默认不启动、不开机自启，需手动双击 `start-sync.bat`）
-- `.github/workflows/deploy.yml` — GitHub Pages 自动部署
+| 文档 | 内容 |
+| --- | --- |
+| [使用教程.md](使用教程.md) | 面向使用者的完整说明 |
+| [部署指南.md](部署指南.md) | 本地运行与自定义部署 |
+| [DEPLOY_CF.md](DEPLOY_CF.md) | Cloudflare 后端部署、接口与运维 |
