@@ -6,6 +6,14 @@
  * - 登录用户：GET/PUT /api/space（首次访问后端自动复制 admin 模板）
  * - admin 登录维护：PUT /api/space/admin（更新默认模板）
  * - 文件：POST /api/files 上传 → cloud_id 引用；GET /api/files/:id 公开直链
+ *
+ * 隔离不变量：
+ * - 云端只保存「模板结构 + 素材文件」，打卡记录（records）没有任何云端通道，
+ *   仅存各自设备上对应空间的本地库——游客打卡不可能污染默认模板，
+ *   admin 的个人打卡也不会出现在任何人的默认模板里。
+ * - 新用户首次 GET /api/space 时后端只复制 __admin__ 模板的 level1/level2
+ *   （copied=true），不含任何人的打卡记录；新用户本地 records 从零开始。
+ * - 用户身份一律由后端从 JWT 解出（requireAuth），客户端传什么都不算数。
  */
 import { CLOUD_API_BASE, STORAGE_LIMIT } from '../config'
 import type { Level1Item, Level2Item } from '../db/db'

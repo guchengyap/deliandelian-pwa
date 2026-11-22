@@ -1,7 +1,8 @@
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { defineConfig } from 'vite'
-import { copyFileSync, existsSync } from 'node:fs'
+import { execSync } from 'node:child_process'
+import { copyFileSync, existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 /**
@@ -27,16 +28,29 @@ function spaFallback() {
   }
 }
 
+// ── 应用版本信息 ─────────────────────────────────────────────
+// 语义化版本号的唯一来源是 package.json 的 "version"；发版只改这一处。
+// 构建信息（本地时区时间 + 短 commit hash）在构建时自动注入，无需手工维护。
+const pkgVersion = (JSON.parse(readFileSync(resolve(import.meta.dirname, 'package.json'), 'utf8')) as { version: string }).version
+let gitHash = ''
+try {
+  gitHash = execSync('git rev-parse --short HEAD', { cwd: import.meta.dirname }).toString().trim()
+} catch {
+  // 无 git 环境（如直接下载源码构建）：降级为仅显示时间
+}
+const buildTime = (() => {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+})()
+
 // https://vite.dev/config/
 export default defineConfig({
   base,
-  // 构建版本：注入构建时刻（本地时区），设置页显示，便于核对设备是否跑的新版
+  // 设置页「应用版本」展示：v1.0.0 · 2026-11-22 18:35 · a1b2c3d
   define: {
-    __BUILD_ID__: JSON.stringify((() => {
-      const d = new Date()
-      const p = (n: number) => String(n).padStart(2, '0')
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())} 构建`
-    })()),
+    __APP_VERSION__: JSON.stringify(`v${pkgVersion}`),
+    __BUILD_ID__: JSON.stringify(gitHash ? `${buildTime} · ${gitHash}` : buildTime),
   },
   plugins: [
     vue(),

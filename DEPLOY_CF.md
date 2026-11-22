@@ -195,6 +195,8 @@ curl https://api.你的域名/api/health
 
 除标注「公开」外均需 `Authorization: Bearer <token>`，服务端按 JWT 的 `uid` 隔离数据。
 
+> **打卡数据不出设备**：云端只存模板结构（`user_spaces`，白名单校验只接受 `{level1, level2}`）与素材文件（`user_files`）；打卡记录没有任何 D1 表与接口，只存在各用户设备的本地库里。因此游客打卡不会污染默认模板，admin 个人打卡也不会进入任何云端，新用户初始化只拿到干净模板。
+
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查（公开） |

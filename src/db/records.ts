@@ -1,6 +1,19 @@
 import { db, type RecordEntry } from './db'
 import { uuid } from '../lib/uuid'
 
+/**
+ * 打卡数据不变量（多用户隔离的根基，改动前必读）：
+ *
+ * 1. 打卡记录只存在于「当前空间的本地 IndexedDB」records 表，永不上传云端——
+ *    云端 user_spaces 只同步 {level1, level2} 模板结构（见 cloudSpace.ts 与
+ *    worker 的 validateSpaceData），任何打卡状态都没有网络通道。
+ * 2. 库按用户隔离：登录用户为 liansheng-u-<uid8>，游客/未登录为本机 liansheng
+ *    （见 space.ts）。切换账号 = 切换整个库，天然互不干扰。
+ * 3. 新用户/新库首次启动只写入种子模板（seedIfEmpty），records 从零开始，
+ *    不继承任何人的历史打卡。
+ * 4. 后端接口全部从 JWT 解析 user_id 过滤数据，不信任客户端传入的身份。
+ */
+
 /** 本地时区的 YYYY-MM-DD，避免 toISOString() 的 UTC 跨日问题。 */
 export function dateKey(d: Date = new Date()): string {
   const y = d.getFullYear()
@@ -18,8 +31,7 @@ const twinKey = (r: Pick<RecordEntry, 'date' | 'practice_item_id'>) =>
   `${r.date}|${r.practice_item_id}`
 
 /**
- * 设置某天某项目完成状态，幂等 upsert。
- * records 与 outbox 在同一事务中写入：outbox 留待同步确认，确认后清空。
+ * 设置某天某项目完成状态，幂等 upsert，仅写本地 records 表。
  * 关闭时不新增记录（避免空白行），已有记录则保留并置 completed=false。
  */
 export async function setCompletion(
@@ -28,32 +40,21 @@ export async function setCompletion(
   completed: boolean,
 ): Promise<void> {
   const now = Date.now()
-  await db.transaction('rw', db.records, db.outbox, async () => {
+  await db.transaction('rw', db.records, async () => {
     const existing = await findOne(date, itemId)
-    let rid: string
     if (existing) {
       if (existing.completed === completed) return
-      rid = existing.record_id
-      await db.records.update(rid, { completed, updated_at: now })
+      await db.records.update(existing.record_id, { completed, updated_at: now })
     } else {
       if (!completed) return
-      rid = uuid()
       await db.records.add({
-        record_id: rid,
+        record_id: uuid(),
         date,
         practice_item_id: itemId,
         completed: true,
         updated_at: now,
       })
     }
-    // 同 record_id 的新条目覆盖旧条目，outbox 只留每个逻辑键的最新状态。
-    await db.outbox.put({
-      record_id: rid,
-      date,
-      practice_item_id: itemId,
-      completed,
-      updated_at: now,
-    })
   })
 }
 
@@ -73,7 +74,7 @@ export async function completedIdsOn(date: string): Promise<Set<string>> {
 
 /**
  * 一键取消某天全部打卡：逐项复用 setCompletion 置为未完成。
- * 不物理删除记录——与手动取消一致，走同一 outbox 同步链路。
+ * 不物理删除记录——与手动取消一致，记录保留在本地。
  * 返回实际取消的项数。
  */
 export async function uncompleteAllOn(date: string): Promise<number> {
@@ -88,10 +89,9 @@ export function allCompleted(): Promise<RecordEntry[]> {
 }
 
 /**
- * 合并服务端推来的记录（state 全量或 update 增量）：
- * - 同 record_id：updated_at 新者胜；
- * - 同 (date, practice_item_id) 双键竞争：只保留最新版本，败者删除；
- * - deleted 是服务端判负删除的 record_id 列表，直接删。
+ * 合并一批记录进本地库（updated_at 新者胜 + 双键竞争裁决）。
+ * 当前唯一用途：JSON 备份导入（backup.ts）——备份来自同一用户自己导出的
+ * 文件，合并不涉及跨用户；云端多用户同步不存在（打卡不出本机）。
  * 返回本地数据是否有变化。
  */
 export async function mergeRemoteEntries(
@@ -171,23 +171,4 @@ export async function pruneDuplicates(): Promise<void> {
   const keep = new Set([...best.values()].map((r) => r.record_id))
   const drop = all.filter((r) => !keep.has(r.record_id)).map((r) => r.record_id)
   if (drop.length) await db.records.bulkDelete(drop)
-}
-
-/**
- * 用服务端全量状态确认 outbox：
- * state 是服务端收到本批 outbox 并合并之后返回的全量，
- * 因此只要服务端已存在同 (date, item) 逻辑键的记录，本条即视为已送达。
- * 不再比较 updated_at——避免设备间时钟偏差导致 outbox 永不确认、反复重发。
- */
-export async function confirmOutbox(serverState: RecordEntry[]): Promise<void> {
-  const seen = new Set<string>()
-  for (const r of serverState) seen.add(twinKey(r))
-  const pending = await db.outbox.toArray()
-  const acked = pending.filter((o) => seen.has(twinKey(o))).map((o) => o.record_id)
-  if (acked.length) await db.outbox.bulkDelete(acked)
-}
-
-/** 待发送条数（调试用）。 */
-export function outboxCount(): Promise<number> {
-  return db.outbox.count()
 }

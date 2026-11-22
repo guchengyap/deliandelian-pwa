@@ -159,7 +159,13 @@ export async function refreshUsage(): Promise<void> {
   }
 }
 
-/** 退出登录：清凭证后整页刷新（本地库随空间切换）。 */
+/**
+ * 退出登录：清凭证后整页刷新。
+ * 会话缓存清理点：auth_token / auth_user 从 localStorage 移除；内存态
+ * （auth.user / auth.usage）随 reload 重置；本地库随 space.ts 重新推导，
+ * 切回游客空间（liansheng）。下个用户登录后落在自己的 liansheng-u-<uid8>
+ * 库，互相看不到对方的打卡记录。
+ */
 export function logout(): void {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USER_KEY)

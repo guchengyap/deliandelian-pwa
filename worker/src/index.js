@@ -19,6 +19,14 @@
  *
  * 安全：密码 PBKDF2-SHA256(10 万迭代) 加盐；JWT(HS256, 30 天)；
  *       文件公开读依赖不可猜测 uuid；CORS 白名单反射 env.ALLOWED_ORIGINS。
+ *
+ * 数据隔离（多用户不串号的根基）：
+ * - 所有用户数据查询/写入的 user_id 一律取自 JWT（requireAuth），不信任客户端；
+ * - user_spaces 只存 {level1, level2} 模板结构（validateSpaceData 白名单校验），
+ *   打卡记录没有任何 D1 表与接口——打卡只存在各用户设备的本地库里，
+ *   游客打卡不触碰 __admin__ 默认模板，admin 个人打卡也不进任何云端；
+ * - 新用户首次 GET /api/space 仅复制 __admin__ 模板（level1/level2），
+ *   不携带任何人的打卡数据。
  */
 
 import seed from './seed.json'

@@ -125,11 +125,9 @@ export async function importBackup(file: File): Promise<ImportResult> {
   }
 
   // 1) 记录按 record_id 合并，updated_at 新者胜；同键双胞胎去重。
+  //    备份来自用户自己导出的文件，合并不涉及跨用户数据。
   await mergeRemoteEntries(records)
   await pruneDuplicates()
-  // 合并结果一并进入 outbox：下次同步时推送到电脑端，保持多端一致。
-  const confirmed = await db.records.toArray()
-  if (confirmed.length) await db.outbox.bulkPut(confirmed)
 
   // 2) 整体恢复练声项目录（保留 id 以免打卡历史断链；order 原样带回）。
   //    编号由渲染层按 order 重新生成，无需另存编号字段。

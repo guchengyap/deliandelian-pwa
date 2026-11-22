@@ -2,6 +2,16 @@ import Dexie, { type EntityTable } from 'dexie'
 import seedData from './seed.json'
 import { dbName, SPACE } from '../lib/space'
 
+/**
+ * 存储隔离模型（多用户不串号的根基）：
+ * - 每个用户一个独立库：登录用户 liansheng-u-<uid8>，游客/未登录为本机 liansheng
+ *   （库由 dbName(SPACE) 决定，SPACE 在模块加载时按登录态确定）。
+ * - level1/level2 是练习「模板结构」，可被云端模板同步覆盖（仅登录/游客各自的
+ *   空间范围内）；records 是「打卡记录」，只属于本库，没有任何上传通道。
+ * - 因此：admin 维护默认模板不会带上自己的打卡；游客打卡只留在游客本机；
+ *   新用户首次初始化只有干净模板 + 空打卡。
+ */
+
 export type FileType = 'audio' | 'image'
 
 /** 资源引用：本地文件走 OPFS（id/path），云端文件走 cloud_id（D1 user_files）。 */
@@ -63,7 +73,7 @@ export interface ConfigEntry {
   value: string
 }
 
-/** 打卡记录：每项每天至多一条，completed 可来回切换。 */
+/** 打卡记录：每项每天至多一条，completed 可来回切换；仅存本地，永不上传。 */
 export interface RecordEntry {
   /** crypto.randomUUID() */
   record_id: string
@@ -75,16 +85,12 @@ export interface RecordEntry {
   updated_at: number
 }
 
-/** 同步待确认队列：与 RecordEntry 同构；同一 record_id 的最新一条覆盖旧条目。 */
-export type OutboxEntry = RecordEntry
-
 class AppDatabase extends Dexie {
   level1!: EntityTable<Level1Item, 'id'>
   level2!: EntityTable<Level2Item, 'id'>
   practiceRecords!: EntityTable<PracticeRecord, 'id'>
   records!: EntityTable<RecordEntry, 'record_id'>
   config!: EntityTable<ConfigEntry, 'key'>
-  outbox!: EntityTable<OutboxEntry, 'record_id'>
 
   constructor() {
     super(dbName(SPACE))
@@ -104,10 +110,8 @@ class AppDatabase extends Dexie {
     this.version(4).stores({
       config: 'key',
     })
-    // 同步待发送队列：确认（服务端已有不旧版本）后删除。
-    this.version(5).stores({
-      outbox: 'record_id, updated_at',
-    })
+    // v5 曾声明 outbox（已废弃的本地电脑同步服务遗留）：打卡只存 records，
+    // 不再有发送队列。旧库里残留的 outbox 表无害，不再声明、不再读写。
   }
 }
 

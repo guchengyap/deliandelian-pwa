@@ -23,7 +23,8 @@ const emit = defineEmits<{
   restore: []
 }>()
 
-/** 构建版本号（vite define 注入），用于核对设备是否运行最新版。 */
+/** 语义化版本号 + 构建信息（vite define 注入），用于核对设备是否运行最新版。 */
+const appVersion = __APP_VERSION__
 const buildId = __BUILD_ID__
 
 const theme = ref<ThemeName>(currentTheme())
@@ -157,7 +158,7 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
       </div>
       <div class="row">
         <dt>应用版本</dt>
-        <dd>{{ buildId }}</dd>
+        <dd class="version">{{ appVersion }} · {{ buildId }}</dd>
       </div>
     </dl>
 
@@ -350,6 +351,12 @@ dd {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 应用版本：等宽数字，长串信息（版本 · 时间 · hash）不跳动 */
+dd.version {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 dd.ok {
   color: var(--accent);
