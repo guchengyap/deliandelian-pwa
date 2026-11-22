@@ -1,22 +1,16 @@
 /**
  * 全局配置常量：云端后端地址与限额。
  *
- * CLOUD_API_BASE 三种状态：
- * - ''  （空串）= 未接入后端，应用运行纯本地模式（一切功能照旧，仅无账号体系）。
- *   当前处于此状态：后端已部署但 workers.dev 域名在中国大陆被 DNS 污染，
- *   待绑定自有域名后，把地址填进来并推送即可启用云端账号体系。
- * - 接入后填自有域名（推荐，大陆可访问）：
- *     export const CLOUD_API_BASE = 'https://api.你的域名.com'
- * - 或（仅境外可用）workers.dev 地址：
- *     export const CLOUD_API_BASE = 'https://liansheng-api.<你的子域>.workers.dev'
- * - 结尾不带斜杠，接口拼接形如 `${CLOUD_API_BASE}/api/login`。
+ * CLOUD_API_BASE：已接入自有域名（线上正式环境，大陆可访问）：
+ *     https://api.guchengyapls.dpdns.org
+ * 结尾不带斜杠，接口拼接形如 `${CLOUD_API_BASE}/api/login`。
  *
- * 本地联调可建 `.env.local`（已被 .gitignore 忽略）：
+ * 本地联调可建 `.env.local`（已被 .gitignore 忽略）覆盖：
  *     VITE_CLOUD_API_BASE=http://127.0.0.1:8787
- * 配合 `node worker/mock-server.mjs` 即可跑通注册/上传/删除全流程；
- * 不设置时打包结果为空串，线上仍是纯本地模式。
+ * 配合 `node worker/mock-server.mjs` 即可跑通注册/上传/删除全流程。
  */
-export const CLOUD_API_BASE: string = import.meta.env.VITE_CLOUD_API_BASE ?? ''
+export const CLOUD_API_BASE: string =
+  import.meta.env.VITE_CLOUD_API_BASE ?? 'https://api.guchengyapls.dpdns.org'
 
 /** 单用户云盘限额：120MB（与 Worker 端 LIMIT 保持一致）。 */
 export const STORAGE_LIMIT = 120 * 1024 * 1024

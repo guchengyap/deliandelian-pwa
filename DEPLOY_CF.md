@@ -6,14 +6,14 @@
 > | --- | --- |
 > | Cloudflare 账号 | `levein1998@gmail.com`（已 OAuth 授权 wrangler） |
 > | Worker 名称 | `liansheng-api` |
-> | Worker 地址 | 以 `npx wrangler deploy` 输出为准；workers.dev 子域是账户级命名空间（注册时固定、不可二次修改），**中国大陆直连不可用** |
+> | Worker 地址 | 生产 `https://api.guchengyapls.dpdns.org`（已绑定自有域名）；workers.dev 子域仅作调试、大陆不可用 |
 > | D1 数据库 | `liansheng-db` · id `01b8bb35-3884-41bc-b31b-7809224a6a97`（三张表已建） |
 > | JWT_SECRET | 已写入（Cloudflare Secret，不在仓库） |
-> | 前端状态 | `src/config.ts` 仍为空串 = **纯本地模式**（等绑定自有域名后启用云端） |
+> | 前端状态 | 已启用云端账号体系（`src/config.ts` 指向 `api.guchengyapls.dpdns.org`） |
 > | 历史资源 | 更名前的旧 Worker 与旧 D1 已删除，账号内只保留上表资源 |
 >
 > 一键部署脚本：`node worker/deploy.mjs`（已登录状态下可重复执行，幂等）。
-> **下一步只剩「绑定自有域名」**——见文末第 8 节。
+> 自有域名已绑定：`api.guchengyapls.dpdns.org` → Worker。第 8 节保留作换域名 / 新环境参考。
 
 ---
 

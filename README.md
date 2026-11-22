@@ -43,7 +43,7 @@ git add -A && git commit -m "feat: 改了什么" && git push
 
 Vite · Vue 3 · TypeScript · Dexie (IndexedDB) · OPFS · vite-plugin-pwa
 
-可选后端：Cloudflare Workers + D1（部署见 [DEPLOY_CF.md](DEPLOY_CF.md)，当前前端为纯本地模式，未接入时不影响任何功能）。
+后端：Cloudflare Workers + D1，已接入自有域名 `api.guchengyapls.dpdns.org`（部署与接口见 [DEPLOY_CF.md](DEPLOY_CF.md)）。
 
 ## 更多文档
 
