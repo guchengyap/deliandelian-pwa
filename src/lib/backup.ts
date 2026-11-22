@@ -92,7 +92,7 @@ export async function exportJsonBackup(): Promise<number> {
     db.level2.orderBy('order').toArray(),
     db.config.toArray(),
   ])
-  const payload = { app: 'deliandelian', version: 1, exported_at: Date.now(), records, level1, level2, config }
+  const payload = { app: 'liansheng', version: 1, exported_at: Date.now(), records, level1, level2, config }
   const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

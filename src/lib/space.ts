@@ -8,7 +8,8 @@
  * 规则：
  * - 取 pathname 最后一段合法路径段作为空间名（小写字母/数字/下划线/连字符，1–32 位）；
  * - 根路径、index.html、无合法段一律回退到 'default'；
- * - 'default' 是老用户空间，库名/目录保持历史名称（deliandelian / files），零迁移。
+ * - 'default' 是老用户空间，OPFS 目录沿用 files；库名已统一为 liansheng，
+ *   更名前的旧库由 db.ts 在首次启动时自动迁移（见 migrateLegacyDb）。
  *
  * 注意：这不是安全边界——同一 Origin 下的脚本理论上都能访问彼此的库，
  * 它只是让两个独立部署路径的日常数据互不覆盖。
@@ -48,9 +49,9 @@ export function currentSpace(): string {
   }
 }
 
-/** Dexie 数据库名：默认空间保留原名，其余加后缀。 */
+/** Dexie 数据库名：默认空间用项目名，其余加空间后缀。 */
 export function dbName(space: string): string {
-  return space === DEFAULT_SPACE ? 'deliandelian' : `deliandelian-${space}`
+  return space === DEFAULT_SPACE ? 'liansheng' : `liansheng-${space}`
 }
 
 /** OPFS 文件目录名：默认空间保留原名，其余加后缀。 */

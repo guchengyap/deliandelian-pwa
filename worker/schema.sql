@@ -1,5 +1,5 @@
 -- 练声助手线上后端 D1 建表脚本
--- 执行：npx wrangler d1 execute deliandelian --remote --file=./schema.sql
+-- 执行：npx wrangler d1 execute liansheng-db --remote --file=./schema.sql
 
 -- 用户表：全部账号信息统一存这里；前端只保存 Token 与基础缓存。
 CREATE TABLE IF NOT EXISTS users (

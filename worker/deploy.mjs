@@ -8,7 +8,7 @@
  *
  * 做的事（顺序）：
  *   1. 检查 wrangler 登录状态
- *   2. 创建 D1 数据库 deliandelian（已存在则复用），回填 wrangler.toml 的 database_id
+ *   2. 创建 D1 数据库 liansheng-db（已存在则复用），回填 wrangler.toml 的 database_id
  *   3. 导入 schema.sql 建表（幂等，可重复执行）
  *   4. 部署 Worker，拿到 workers.dev 地址
  *   5. 生成并写入 JWT_SECRET（已存在则保留，避免把已登录用户踢下线）
@@ -26,7 +26,7 @@ const WORKER_DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.resolve(WORKER_DIR, '..')
 const TOML_PATH = path.join(WORKER_DIR, 'wrangler.toml')
 const CONFIG_PATH = path.join(ROOT, 'src', 'config.ts')
-const DB_NAME = 'deliandelian'
+const DB_NAME = 'liansheng-db'
 const SKIP_PUSH = process.argv.includes('--skip-push')
 
 // ── 凭据：优先用 API Token（worker/.cf-token），否则走 wrangler login 的 OAuth ──
@@ -260,7 +260,7 @@ console.log(`
 前端配置：src/config.ts 已回填
 下一步：
   1. 等 1~2 分钟让 GitHub Pages 完成重新部署
-  2. 打开 https://guchengyap.github.io/deliandelian-pwa/ ，设置页点「登录 / 注册」
+  2. 打开 https://guchengyap.github.io/liansheng/ ，设置页点「登录 / 注册」
   3. 立即注册的第一个账号自动成为管理员（admin），其维护内容 = 全站默认模板
   4. 在中国大陆网络下如无法访问后端，请在 Cloudflare 控制台给 Worker 绑定自定义域名
 ──────────────────────────────────────────────`)

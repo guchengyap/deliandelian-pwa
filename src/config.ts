@@ -8,7 +8,7 @@
  * - 接入后填自有域名（推荐，大陆可访问）：
  *     export const CLOUD_API_BASE = 'https://api.你的域名.com'
  * - 或（仅境外可用）workers.dev 地址：
- *     export const CLOUD_API_BASE = 'https://deliandelian-api.deliandelian.workers.dev'
+ *     export const CLOUD_API_BASE = 'https://liansheng-api.<你的子域>.workers.dev'
  * - 结尾不带斜杠，接口拼接形如 `${CLOUD_API_BASE}/api/login`。
  */
 export const CLOUD_API_BASE: string = ''

@@ -1,16 +1,16 @@
 # Cloudflare Workers + D1 后端部署指引
 
-> **当前部署状态（2026-11-22 已完成）**
+> **当前部署状态（2026-11-22 重建完成）**
 >
 > | 项目 | 值 |
 > | --- | --- |
 > | Cloudflare 账号 | `levein1998@gmail.com`（已 OAuth 授权 wrangler） |
-> | Worker 名称 | `deliandelian-api` |
-> | workers.dev 地址 | `https://deliandelian-api.deliandelian.workers.dev`（**境外可用；中国大陆被 DNS 污染，不可用**） |
-> | workers.dev 子域 | `deliandelian`（已注册） |
-> | D1 数据库 | `deliandelian` · id `9e644177-84e7-4254-aa64-8c70e943578e`（三张表已建） |
+> | Worker 名称 | `liansheng-api` |
+> | Worker 地址 | 以 `npx wrangler deploy` 输出为准；workers.dev 子域是账户级命名空间（注册时固定、不可二次修改），**中国大陆直连不可用** |
+> | D1 数据库 | `liansheng-db` · id `01b8bb35-3884-41bc-b31b-7809224a6a97`（三张表已建） |
 > | JWT_SECRET | 已写入（Cloudflare Secret，不在仓库） |
 > | 前端状态 | `src/config.ts` 仍为空串 = **纯本地模式**（等绑定自有域名后启用云端） |
+> | 历史资源 | 更名前的旧 Worker 与旧 D1 已删除，账号内只保留上表资源 |
 >
 > 一键部署脚本：`node worker/deploy.mjs`（已登录状态下可重复执行，幂等）。
 > **下一步只剩「绑定自有域名」**——见文末第 8 节。
@@ -62,7 +62,7 @@ npx wrangler whoami
 
 ```bash
 # 创建数据库（记住输出里的 database_id）
-npx wrangler d1 create deliandelian
+npx wrangler d1 create liansheng-db
 ```
 
 把输出的 `database_id` 填进 `worker/wrangler.toml`：
@@ -70,14 +70,14 @@ npx wrangler d1 create deliandelian
 ```toml
 [[d1_databases]]
 binding = "DB"
-database_name = "deliandelian"
+database_name = "liansheng-db"
 database_id = "把这一行替换为刚才的 database_id"
 ```
 
 然后建表：
 
 ```bash
-npx wrangler d1 execute deliandelian --remote --file=worker/schema.sql
+npx wrangler d1 execute liansheng-db --remote --file=worker/schema.sql
 ```
 
 ## 4. 设置 JWT 签名密钥（敏感信息，不走代码仓库）
@@ -102,22 +102,24 @@ npx wrangler deploy
 成功后会输出类似：
 
 ```
-Published deliandelian-api (x.xx sec)
-  https://deliandelian-api.<你的子域>.workers.dev
+Uploaded liansheng-api (x.xx sec)
+  https://liansheng-api.<账户子域>.workers.dev
 ```
 
 **先自测一下后端**（浏览器或 curl 访问，应返回 `{"ok":true,...}`）：
 
 ```bash
-curl https://deliandelian-api.<你的子域>.workers.dev/api/health
+curl https://liansheng-api.<账户子域>.workers.dev/api/health
 ```
+
+> 子域在 Cloudflare 注册 Workers 时确定，属于账户级命名空间，与项目名无关；改项目名不需要动它。
 
 ## 6. 回填前端 API 地址
 
 编辑 `src/config.ts`，把空串换成上一步的地址（结尾不带斜杠）：
 
 ```ts
-export const CLOUD_API_BASE = 'https://deliandelian-api.<你的子域>.workers.dev'
+export const CLOUD_API_BASE = 'https://liansheng-api.<账户子域>.workers.dev'
 ```
 
 然后提交并推送，GitHub Pages 会自动重新部署：
@@ -141,7 +143,7 @@ git push
 
 ## 8. 中国大陆访问：绑定自有域名（唯一剩余步骤）
 
-**为什么必须做**：实测 `deliandelian-api.deliandelian.workers.dev` 在大陆被 DNS 污染（解析到 `31.13.95.17` 等 Facebook IP，连接超时）；而 Cloudflare 的普通域名在同一网络下 200 OK（3.7s），所以换自有域名即可解决。
+**为什么必须做**：`*.workers.dev` 在大陆被 DNS 污染（解析到 `31.13.95.17` 等 Facebook IP，连接超时）；而 Cloudflare 的普通域名在同一网络下 200 OK（3.7s），所以换自有域名即可解决。
 
 ### 8.1 买域名（约 ¥1~10 首年）
 
@@ -161,8 +163,8 @@ git push
 
 ### 8.3 给 Worker 绑定自定义域名
 
-1. Cloudflare 控制台 → **Workers & Pages** → `deliandelian-api` → **Settings** → **Domains & Routes**
-2. **Add** → **Custom Domain** → 填 `api.你的域名`（例如 `api.deliandelian.top`）
+1. Cloudflare 控制台 → **Workers & Pages** → `liansheng-api` → **Settings** → **Domains & Routes**
+2. **Add** → **Custom Domain** → 填 `api.你的域名`
 3. 保存后等待 1~2 分钟证书签发（状态变 Active）
 
 ### 8.4 回填前端地址并上线
@@ -193,7 +195,7 @@ curl https://api.你的域名/api/health
 
 ```bash
 # 本地 D1 建表（--local 使用 .wrangler/ 下的本地模拟库）
-npx wrangler d1 execute deliandelian --local --file=worker/schema.sql
+npx wrangler d1 execute liansheng-db --local --file=worker/schema.sql
 
 # 本地起 Worker（默认 http://127.0.0.1:8787；密钥读 worker/.dev.vars）
 cd worker && npx wrangler dev
