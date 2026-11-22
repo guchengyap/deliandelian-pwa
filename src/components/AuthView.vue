@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { login, register } from '../lib/auth'
+import { cloudAvailable } from '../lib/cloudSpace'
 
 const emit = defineEmits<{ close: []; success: [] }>()
 
@@ -73,6 +74,10 @@ async function submit() {
       error.value = '请填写全部必填项'
       return
     }
+    if (!/^[\u4e00-\u9fa5A-Za-z0-9_-]{2,32}$/.test(username.value.trim())) {
+      error.value = '用户名需 2~32 位（中文/字母/数字/下划线/连字符）'
+      return
+    }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
       error.value = '邮箱格式不正确'
       return
@@ -113,7 +118,16 @@ async function submit() {
     <Transition name="auth">
       <div class="auth-mask" @click.self="emit('close')">
         <div class="auth-card" role="dialog" aria-modal="true" aria-label="登录或注册">
-          <div class="tabs" role="tablist">
+          <!-- 纯本地模式：不渲染表单、不发请求（静态托管域名对 POST 返回 405），只做说明 -->
+          <div v-if="!cloudAvailable" class="offline">
+            <h2>纯本地模式</h2>
+            <p>当前未接入云端账号服务，注册与登录暂不可用。</p>
+            <p>所有数据已自动保存在本机，无需登录即可使用全部功能。</p>
+            <button type="button" class="primary" @click="emit('close')">我知道了</button>
+          </div>
+
+          <template v-else>
+            <div class="tabs" role="tablist">
             <button type="button" role="tab" :class="{ active: mode === 'login' }" @click="switchMode('login')">
               登录
             </button>
@@ -149,7 +163,7 @@ async function submit() {
             </div>
             <label class="field">
               <span>用户名 *</span>
-              <input v-model="username" autocomplete="username" placeholder="2~32 位" />
+              <input v-model="username" autocomplete="username" placeholder="2~32 位，中英文数字-_均可" />
             </label>
             <label class="field">
               <span>邮箱 *</span>
@@ -169,6 +183,7 @@ async function submit() {
           </form>
 
           <p v-if="error" class="error" role="alert">{{ error }}</p>
+          </template>
         </div>
       </div>
     </Transition>
@@ -208,6 +223,24 @@ async function submit() {
   border-radius: 999px;
   padding: 4px;
   margin-bottom: 18px;
+}
+/* 纯本地模式说明面板 */
+.offline h2 {
+  margin: 4px 0 10px;
+  font-size: 17px;
+  text-align: center;
+  color: var(--text);
+}
+.offline p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  text-align: center;
+}
+.offline .primary {
+  width: 100%;
+  margin-top: 10px;
 }
 .tabs button {
   border: none;

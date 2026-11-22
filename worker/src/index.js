@@ -156,10 +156,10 @@ const now = () => Date.now()
 
 const RE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const RE_PHONE = /^\d{6,20}$/
-const RE_USERNAME = /^[\u4e00-\u9fa5A-Za-z0-9_]{2,32}$/
+const RE_USERNAME = /^[\u4e00-\u9fa5A-Za-z0-9_-]{2,32}$/
 
 function validateReg({ username, email, password, phone }) {
-  if (!username || !RE_USERNAME.test(username)) fail(400, '用户名需 2~32 位（中文/字母/数字/下划线）')
+  if (!username || !RE_USERNAME.test(username)) fail(400, '用户名需 2~32 位（中文/字母/数字/下划线/连字符）')
   if (!email || !RE_EMAIL.test(email)) fail(400, '邮箱格式不正确')
   if (!password || password.length < 6) fail(400, '密码至少 6 位')
   if (!phone || !RE_PHONE.test(phone)) fail(400, '手机号格式不正确')

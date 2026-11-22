@@ -125,7 +125,19 @@ export interface RegisterFields {
   avatar?: string | null // dataURL，可空
 }
 
+/**
+ * 云端未配置（纯本地模式）时的兜底拦截。
+ * 若放行，fetch 会以相对路径把 POST 打到当前静态托管域名（如 GitHub Pages），
+ * Pages 只支持 GET，POST 一律 405——用户只能看到莫名的「请求失败 (405)」。
+ */
+function requireCloud(): void {
+  if (!CLOUD_API_BASE) {
+    throw new Error('当前为纯本地模式，未接入云端账号服务，注册与登录不可用；所有数据已自动保存在本机')
+  }
+}
+
 export async function register(fields: RegisterFields): Promise<AuthUser> {
+  requireCloud()
   const r = await api<ApiAuth>('/api/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -138,6 +150,7 @@ export async function register(fields: RegisterFields): Promise<AuthUser> {
 }
 
 export async function login(account: string, password: string): Promise<AuthUser> {
+  requireCloud()
   const r = await api<ApiAuth>('/api/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

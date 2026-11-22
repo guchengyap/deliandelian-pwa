@@ -98,7 +98,9 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
           {{ auth.user ? (auth.user.role === 'admin' ? '管理员 · 默认模板维护者' : '专属空间已就绪') : '公共只读 · 登录后可定制' }}
         </p>
       </div>
-      <button v-if="!auth.user" type="button" class="pill primary" @click="emit('login')">登录 / 注册</button>
+      <button v-if="!auth.user" type="button" class="pill primary" @click="emit('login')">
+        {{ cloudAvailable ? '登录 / 注册' : '账号' }}
+      </button>
       <button v-else type="button" class="pill" @click="logout">退出登录</button>
     </section>
 
