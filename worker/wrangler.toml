@@ -11,7 +11,7 @@ compatibility_date = "2026-01-15"
 [[d1_databases]]
 binding = "DB"
 database_name = "deliandelian"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "9e644177-84e7-4254-aa64-8c70e943578e"
 
 [vars]
 # 允许的前端来源（逗号分隔，CORS 白名单反射）。

@@ -7,7 +7,7 @@
  *     export const CLOUD_API_BASE = 'https://deliandelian-api.<你的子域>.workers.dev'
  * - 结尾不带斜杠，接口拼接形如 `${CLOUD_API_BASE}/api/login`。
  */
-export const CLOUD_API_BASE: string = ''
+export const CLOUD_API_BASE: string = 'https://deliandelian-api.deliandelian.workers.dev'
 
 /** 单用户云盘限额：120MB（与 Worker 端 LIMIT 保持一致）。 */
 export const STORAGE_LIMIT = 120 * 1024 * 1024
