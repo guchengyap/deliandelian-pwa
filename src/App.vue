@@ -191,6 +191,7 @@ async function onCheckAll() {
       failed += 1
     }
   }
+  await flushPendingSync() // 批量打卡后一次上推全部（避免逐项 flush 互斥漏推）
   await afterChange()
   if (failed === 0) showToast(`一键打卡完成 · 今日全部完成（${doneToday.value.size}/${tasks.value.length}）`)
   else if (ok > 0) showToast(`已打卡 ${ok} 项，${failed} 项失败请重试`)
@@ -205,6 +206,7 @@ async function onUncheckAll() {
   refreshToday()
   try {
     const n = await uncompleteAllOn(today.value)
+    await flushPendingSync() // 批量取消后一次上推全部
     await afterChange()
     showToast(n ? `已取消今日全部打卡（${n} 项）` : '今日暂无打卡记录')
   } catch {
