@@ -10,8 +10,13 @@
  * - 或（仅境外可用）workers.dev 地址：
  *     export const CLOUD_API_BASE = 'https://liansheng-api.<你的子域>.workers.dev'
  * - 结尾不带斜杠，接口拼接形如 `${CLOUD_API_BASE}/api/login`。
+ *
+ * 本地联调可建 `.env.local`（已被 .gitignore 忽略）：
+ *     VITE_CLOUD_API_BASE=http://127.0.0.1:8787
+ * 配合 `node worker/mock-server.mjs` 即可跑通注册/上传/删除全流程；
+ * 不设置时打包结果为空串，线上仍是纯本地模式。
  */
-export const CLOUD_API_BASE: string = ''
+export const CLOUD_API_BASE: string = import.meta.env.VITE_CLOUD_API_BASE ?? ''
 
 /** 单用户云盘限额：120MB（与 Worker 端 LIMIT 保持一致）。 */
 export const STORAGE_LIMIT = 120 * 1024 * 1024

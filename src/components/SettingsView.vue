@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { auth, logout } from '../lib/auth'
+import { computed, onMounted, ref } from 'vue'
+import { auth, logout, refreshUsage } from '../lib/auth'
 import { CLOUD_API_BASE, STORAGE_LIMIT } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
 import { exportJsonBackup } from '../lib/backup'
 import { currentTheme, setTheme, type ThemeName } from '../lib/theme'
+import StorageRing from './StorageRing.vue'
+import CloudFilesDialog from './CloudFilesDialog.vue'
 
 const props = defineProps<{
   taskCount: number
@@ -57,13 +59,26 @@ function onMaintenanceSwitch() {
   if (!props.maintaining) emit('maintenance')
 }
 
+// ── 云端容量 ──
+const showFiles = ref(false)
+const cloudNote = ref('')
+const usage = computed(() => ({
+  usedBytes: auth.usage?.used ?? 0,
+  quotaBytes: auth.usage?.limit || STORAGE_LIMIT,
+}))
+
+onMounted(() => {
+  // 进入设置页时拉一次最新用量，避免显示上次会话的旧数字
+  void refreshUsage()
+})
+
+function onFilesChanged(payload: { deletedIds: string[] }) {
+  cloudNote.value = `已删除 ${payload.deletedIds.length} 个文件，容量已释放`
+  window.setTimeout(() => (cloudNote.value = ''), 2600)
+}
+
 // ── 显示辅助 ──
 const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_URL}favicon.svg`)
-const usageText = computed(() => {
-  if (!auth.usage) return '云端已同步'
-  const mb = (n: number) => (n / 1024 / 1024).toFixed(1)
-  return `云端已同步（已用 ${mb(auth.usage.used)} MB / ${mb(auth.usage.limit || STORAGE_LIMIT)} MB）`
-})
 </script>
 
 <template>
@@ -86,6 +101,17 @@ const usageText = computed(() => {
       <button v-else type="button" class="pill" @click="logout">退出登录</button>
     </section>
 
+    <!-- 云端容量：镂空圆环 + 精确用量 + 管理入口 -->
+    <section v-if="cloudAvailable && auth.user" class="cloud">
+      <div class="cloud-head">
+        <h2>云端空间</h2>
+        <button type="button" class="mini" @click="showFiles = true">管理云端文件</button>
+      </div>
+      <StorageRing :used="usage.usedBytes" :quota="usage.quotaBytes" :size="90" :stroke="9" />
+      <p class="cloud-hint">练习内容与上传的音频 / 图片保存在你的云端空间；打卡记录只存本机。</p>
+      <p v-if="cloudNote" class="cloud-note">{{ cloudNote }}</p>
+    </section>
+
     <dl class="rows">
       <div class="row">
         <dt>当前空间</dt>
@@ -106,7 +132,7 @@ const usageText = computed(() => {
         <dd :class="{ ok: !!auth.user && cloudAvailable }">
           <template v-if="!cloudAvailable">未连接云端（本地模式）</template>
           <template v-else-if="!auth.user">公共只读模式</template>
-          <template v-else>{{ usageText }}</template>
+          <template v-else>已连接 · {{ auth.user.role === 'admin' ? '默认模板维护者' : '专属空间' }}</template>
         </dd>
       </div>
       <div class="row">
@@ -168,6 +194,8 @@ const usageText = computed(() => {
         帮助与教程 <span aria-hidden="true">›</span>
       </button>
     </div>
+
+    <CloudFilesDialog v-if="showFiles" @close="showFiles = false" @changed="onFilesChanged" />
   </div>
 </template>
 
@@ -262,6 +290,42 @@ const usageText = computed(() => {
   transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
   border-radius: var(--r-m);
   padding: 0 16px;
+}
+/* 云端容量卡片 */
+.cloud {
+  background: var(--card-glass);
+  border: 1px solid var(--card-glass-border);
+  -webkit-backdrop-filter: var(--card-blur);
+  backdrop-filter: var(--card-blur);
+  box-shadow: var(--card-glass-shadow);
+  transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+  border-radius: var(--r-m);
+  padding: 14px 16px 16px;
+  margin-bottom: 16px;
+}
+.cloud-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.cloud-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+.cloud-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.cloud-note {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--accent);
 }
 .row {
   display: flex;

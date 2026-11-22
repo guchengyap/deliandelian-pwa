@@ -45,9 +45,9 @@ function mockD1() {
         }
         if (like(sql, 'select id, name, mime, size, created_at')) return null
         if (like(sql, 'select name, mime, size, data')) return files.get(api._p[0]) ?? null
-        if (like(sql, 'select user_id from user_files')) {
+        if (like(sql, 'from user_files where id')) {
           const f = files.get(api._p[0])
-          return f ? { user_id: f.user_id } : null
+          return f ? { user_id: f.user_id, size: f.size } : null
         }
         throw new Error('mockD1 未实现的 first: ' + sql)
       },
@@ -92,7 +92,7 @@ function mockD1() {
     }
     return api
   }
-  return { prepare }
+  return { prepare, _files: files, _spaces: spaces, _users: users }
 }
 
 const env = { DB: mockD1(), JWT_SECRET: 'test-secret-123', ALLOWED_ORIGINS: 'https://guchengyap.github.io' }
@@ -229,33 +229,51 @@ let fileId = ''
     body: form,
   })
   check('200 + size=102400', up.status === 200 && up.body?.size === 102400, JSON.stringify(up.body))
-  check('usage 累加（文件 + 空间 JSON）', up.body?.used >= 102400, String(up.body?.used))
+  check('usage 累加（文件 + 空间 JSON）', up.body?.usedBytes >= 102400, String(up.body?.usedBytes))
+  check('返回 quotaBytes=120MB', up.body?.quotaBytes === 120 * 1024 * 1024)
   fileId = up.body?.id
   const dl = await call(`/api/files/${fileId}`)
   check('公开直链 200', dl.status === 200)
   check('内容一致', dl.body instanceof ArrayBuffer && dl.body.byteLength === 102400)
   const list = await call('/api/files', { headers: { Authorization: `Bearer ${user2Token}` } })
   check('列表 1 条', list.body?.files?.length === 1)
+  const f = list.body?.files?.[0] ?? {}
+  check(
+    '列表字段完整（id/name/mime/size/created_at）',
+    !!f.id && f.name === 'test.mp3' && f.mime === 'audio/mpeg' && f.size === 102400 && typeof f.created_at === 'number',
+    JSON.stringify(f),
+  )
+  check('列表带实时用量', typeof list.body?.usedBytes === 'number' && list.body?.quotaBytes === 120 * 1024 * 1024)
 }
 
-console.log('T10 120MB 限额拦截')
+console.log('T10 120MB 限额：写入前拦截并返回结构化用量')
 {
-  // 直接塞一个大文件 mock（跳过真实 100MB 构造）：mock files 注入 119MB
-  const big = { id: 'fake-big', user_id: null, name: 'big.mp3', mime: 'audio/mpeg', size: 119 * 1024 * 1024, data: null, created_at: 1 }
-  // 找到 user2 的 uid：从 token 解 payload
   const payload = JSON.parse(Buffer.from(user2Token.split('.')[1], 'base64').toString())
-  big.user_id = payload.uid
-  env.DB // noop
-  // 通过 PUT 空间注入不可行——直接操作 mock：调用内部不可达，改用再传 5MB 触发（119+5 > 120）
-  env.DBPrepareHack = big
-  // mock 层注入：
-  ;(env.DB).prepare // 已封装；这里直接用受控途径：把 big 放进 mock 的 files Map —— 通过再执行一次真实上传前不可注入，
-  // 简化：上传一个 10MB 文件，此时 used=102400+10MB < 120MB 不拦截；再传 5 次 10MB…… 太慢。
-  // 改为验证服务端拒绝逻辑在「used+size>limit」分支：上传时 mock 端把 SUM 抬高——通过先塞 3 个 39MB（3*39=117MB）不现实。
-  // 结论：限额分支通过单元断言验证（119MB+2MB>120MB），注入 mock 数据：
-  const { default: fs } = await import('node:fs')
-  // 直接改 mock 不优雅；改为信任 T11/T12 的行为链 + 服务端代码路径明确（usedBytes + LIMIT 判断）。
-  check('限额分支代码存在', fs.readFileSync('./src/index.js', 'utf8').includes('used + file.size > LIMIT'))
+  // 向 mock 注入 119MB 占位文件，模拟"已接近上限"（避免真造 119MB 数据）
+  env.DB._files.set('inject-119', {
+    id: 'inject-119',
+    user_id: payload.uid,
+    name: 'old-big.mp3',
+    mime: 'audio/mpeg',
+    size: 119 * 1024 * 1024,
+    data: new Uint8Array(0),
+    created_at: 1,
+  })
+  const form = new FormData()
+  form.append('file', new Blob([new Uint8Array(1024 * 1024).fill(1)], { type: 'audio/mpeg' }), 'more.mp3')
+  const up = await call('/api/files', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${user2Token}` },
+    body: form,
+  })
+  check('413', up.status === 413, String(up.status))
+  check('code=QUOTA_EXCEEDED', up.body?.code === 'QUOTA_EXCEEDED', JSON.stringify(up.body))
+  check('返回 usedBytes', up.body?.usedBytes >= 119 * 1024 * 1024, String(up.body?.usedBytes))
+  check('返回 quotaBytes', up.body?.quotaBytes === 120 * 1024 * 1024)
+  check('返回 incomingBytes', up.body?.incomingBytes === 1024 * 1024)
+  check('remainingBytes = 配额 − 已用', up.body?.remainingBytes === 120 * 1024 * 1024 - up.body?.usedBytes)
+  check('超额请求未落库', env.DB._files.size === 2)
+  env.DB._files.delete('inject-119')
 }
 
 console.log('T11 删除权限：非 owner 403')
@@ -270,6 +288,13 @@ console.log('T11 删除权限：非 owner 403')
     headers: { Authorization: `Bearer ${user2Token}` },
   })
   check('owner 删除 ok', own.status === 200)
+  check('返回删除后 usedBytes/quotaBytes', typeof own.body?.usedBytes === 'number' && own.body?.quotaBytes === 120 * 1024 * 1024)
+  check('freedBytes=文件大小', own.body?.freedBytes === 102400, String(own.body?.freedBytes))
+  const again = await call(`/api/files/${fileId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${user2Token}` },
+  })
+  check('重复删除幂等', again.status === 200 && again.body?.freedBytes === 0)
 }
 
 console.log('T12 未登录访问受保护接口')
@@ -294,6 +319,41 @@ console.log('T14 空间数据格式校验')
     body: JSON.stringify({ data: { foo: 1 } }),
   })
   check('400', r.status === 400)
+}
+
+console.log('T15 admin 删除模板文件时同步清理公共记录引用')
+{
+  const form = new FormData()
+  form.append('file', new Blob([new Uint8Array(2048).fill(7)], { type: 'image/png' }), 'tpl.png')
+  const up = await call('/api/files', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${adminToken}` },
+    body: form,
+  })
+  check('admin 上传 200', up.status === 200, JSON.stringify(up.body))
+  const tplFileId = up.body?.id
+
+  const tpl = (await call('/api/space/admin')).body.data
+  const target = tpl.level2.find((i) => Array.isArray(i.files))
+  target.files.push({ id: 'local-x', name: 'tpl.png', type: 'image', path: '', mime: 'image/png', cloud_id: tplFileId })
+  target.config = { ...(target.config ?? {}), sequence: ['local-x'] }
+  const put = await call('/api/space/admin', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+    body: JSON.stringify({ data: tpl }),
+  })
+  check('模板写入引用', put.status === 200)
+
+  const del = await call(`/api/files/${tplFileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${adminToken}` } })
+  check('admin 删除 200', del.status === 200)
+  check('templateUpdated=true', del.body?.templateUpdated === true, JSON.stringify(del.body))
+  check('返回最新 usedBytes', typeof del.body?.usedBytes === 'number')
+
+  const after = (await call('/api/space/admin')).body.data
+  const stillThere = after.level2.some((i) => (i.files ?? []).some((f) => f.cloud_id === tplFileId))
+  check('模板中已无该文件引用', !stillThere)
+  const seqClean = !after.level2.some((i) => (i.config?.sequence ?? []).includes('local-x'))
+  check('config.sequence 同步清理', seqClean)
 }
 
 console.log(`\n结果：${pass} 通过 / ${failed} 失败`)

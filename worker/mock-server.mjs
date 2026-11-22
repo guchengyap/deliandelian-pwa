@@ -1,12 +1,15 @@
 // 前端联调用 mock 云端服务器：真实 Worker 代码 + 内存 D1，监听 127.0.0.1:8787
 import { createServer } from 'node:http'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
-const src = readFileSync('./src/index.js', 'utf8')
-const seed = readFileSync('./src/seed.json', 'utf8')
-writeFileSync('worker/_compiled.mjs', src.replace("import seed from './seed.json'", `const seed = ${seed}`))
+const here = fileURLToPath(new URL('.', import.meta.url))
+const src = readFileSync(here + 'src/index.js', 'utf8')
+const seed = readFileSync(here + 'src/seed.json', 'utf8')
+const compiledPath = here + '_compiled.mjs'
+writeFileSync(compiledPath, src.replace("import seed from './seed.json'", `const seed = ${seed}`))
 const mod = await import('./_compiled.mjs')
-unlinkSync('worker/_compiled.mjs')
+unlinkSync(compiledPath)
 
 // 简易持久 D1（内存即可，联调用）
 function mockD1() {
@@ -39,9 +42,9 @@ function mockD1() {
           return { s }
         }
         if (like(sql, 'select name, mime, size, data')) return files.get(api._p[0]) ?? null
-        if (like(sql, 'select user_id from user_files')) {
+        if (like(sql, 'from user_files where id')) {
           const f = files.get(api._p[0])
-          return f ? { user_id: f.user_id } : null
+          return f ? { user_id: f.user_id, size: f.size } : null
         }
         throw new Error('first: ' + sql)
       },

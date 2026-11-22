@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, toRaw } from 'vue'
+import { computed, onMounted, reactive, ref, toRaw } from 'vue'
 import seedData from '../db/seed.json'
 import {
   db,
@@ -17,18 +17,23 @@ import {
 import { auth, refreshUsage } from '../lib/auth'
 import { STORAGE_LIMIT } from '../config'
 import {
+  QuotaError,
   canWriteCloud,
   cloudFileUrl,
-  deleteCloudFile,
+  deleteCloudFileQuiet,
+  remainingBytes,
   saveSpace,
   uploadCloudFile,
 } from '../lib/cloudSpace'
 import { uuid } from '../lib/uuid'
+import StorageRing from './StorageRing.vue'
+import CloudFilesDialog from './CloudFilesDialog.vue'
 
 const emit = defineEmits<{ close: []; saved: [] }>()
 
 onMounted(async () => {
   await loadDraft()
+  void refreshUsage()
 })
 
 // ── 草稿 ────────────────────────────────────────────────
@@ -52,6 +57,69 @@ const uploadStates = reactive<Record<string, 'uploading' | 'done' | 'error'>>({}
 const newCloudIds = new Set<string>()
 /** 保存成功后才真正从云端删除的旧文件（取消可恢复）。 */
 const deletedCloudIds = new Set<string>()
+/** 云端文件管理弹层 */
+const showFiles = ref(false)
+/** 容量不足引导：剩余 / 当前文件（打开弹窗，可直接去清理） */
+const quotaNotice = ref<{ remaining: number; incoming: number } | null>(null)
+
+/** 顶部容量栏使用：实时用量（删除文件后会随 auth.usage 立即更新）。 */
+const usage = computed(() => ({
+  usedBytes: auth.usage?.used ?? 0,
+  quotaBytes: auth.usage?.limit || STORAGE_LIMIT,
+}))
+
+/** 草稿里的引用关系：cloud_id → 项目标题（删除文件时的"正被引用"提示用）。 */
+const draftRefMap = computed<Record<string, string>>(() => {
+  const map: Record<string, string> = {}
+  for (const g of groups.value) {
+    for (const item of g.items) {
+      for (const f of item.files ?? []) {
+        if (f.cloud_id) map[f.cloud_id] = item.title.trim() || '未命名项目'
+      }
+    }
+  }
+  return map
+})
+
+/** 剩余可用字节（与后端 usedBytes/quotaBytes 同源，避免两边判断不一致）。 */
+function cloudRemaining(): number {
+  return remainingBytes(usage.value)
+}
+
+/** 上传前本地预检：超了就拦截并弹「空间不足」引导，而不是白传到一半失败。 */
+function overQuota(size: number): boolean {
+  const remain = cloudRemaining()
+  if (size <= remain) return false
+  quotaNotice.value = { remaining: remain, incoming: size }
+  return true
+}
+
+/** 文件管理弹层里删了文件：把草稿中已失效的素材一并移除，并刷新容量。 */
+function onFilesChanged(payload: { usedBytes: number; quotaBytes: number; deletedIds: string[] }) {
+  const gone = new Set(payload.deletedIds)
+  if (!gone.size) return
+  for (const g of groups.value) {
+    for (const item of g.items) {
+      const files = item.files ?? []
+      if (!files.some((f) => f.cloud_id && gone.has(f.cloud_id))) continue
+      for (const f of files) {
+        if (f.cloud_id && gone.has(f.cloud_id)) {
+          invalidateFileUrl(f.id)
+          delete previews[f.id]
+          delete uploadStates[f.id]
+        }
+      }
+      item.files = files.filter((f) => !(f.cloud_id && gone.has(f.cloud_id)))
+    }
+  }
+  message.value = `已删除 ${gone.size} 个云端文件，对应素材已从草稿移除`
+}
+
+/** 「去清理旧文件」：关闭提示，直接打开云端文件管理。 */
+function goCleanup() {
+  quotaNotice.value = null
+  showFiles.value = true
+}
 
 const mb = (bytes?: number) => `${((bytes ?? 0) / 1024 / 1024).toFixed(1)} MB`
 
@@ -121,7 +189,7 @@ function deleteItem(group: DraftGroup, id: string) {
 function discardFile(file: PracticeFile) {
   if (file.cloud_id) {
     // 云端文件：本会话新上传的立即删；原有文件等保存成功再删，取消维护可恢复。
-    if (newCloudIds.has(file.cloud_id)) void deleteCloudFile(file.cloud_id)
+    if (newCloudIds.has(file.cloud_id)) void deleteCloudFileQuiet(file.cloud_id)
     else deletedCloudIds.add(file.cloud_id)
   } else if (file.id.startsWith('u-')) void deleteOpfsFile(file.id)
   else if (originalIds.has(file.id)) deletedIds.add(file.id)
@@ -215,6 +283,8 @@ async function onFiles(e: Event) {
           rejected = true
           continue
         }
+        // 上传前本地预检：超出剩余容量直接拦截，弹「空间不足」引导清理
+        if (useCloud && overQuota(file.size)) continue
         const id = `u-${uuid()}`
         const ref: PracticeFile = {
           id,
@@ -245,11 +315,16 @@ async function onFiles(e: Event) {
           accepted += 1
         } catch (err) {
           if (!useCloud) throw err
-          // 上传失败（含 120MB 超额）：移除占位，行内恢复原状并提示。
+          // 上传失败（含服务端 120MB 超额）：移除占位，行内恢复原状并提示。
           item.files = ensureFiles(item).filter((f) => f.id !== id)
           delete previews[id]
           delete uploadStates[id]
-          message.value = err instanceof Error ? err.message : '上传失败，请重试'
+          if (err instanceof QuotaError) {
+            // 服务端判定超额（客户端数字过期时的兜底）：弹同一引导
+            quotaNotice.value = { remaining: err.remainingBytes, incoming: err.incomingBytes }
+          } else {
+            message.value = err instanceof Error ? err.message : '上传失败，请重试'
+          }
         }
       }
     } else {
@@ -259,7 +334,9 @@ async function onFiles(e: Event) {
       else {
         const target = ensureFiles(item).find((f) => f.id === ctx.fileId)
         if (target) {
-          if (useCloud) {
+          if (useCloud && overQuota(file.size)) {
+            // 已弹「空间不足」引导，不发起上传
+          } else if (useCloud) {
             uploadStates[target.id] = 'uploading'
             try {
               const up = await uploadCloudFile(file)
@@ -271,7 +348,7 @@ async function onFiles(e: Event) {
               target.mime = file.type
               newCloudIds.add(up.id)
               if (oldCloud) {
-                if (newCloudIds.has(oldCloud)) void deleteCloudFile(oldCloud)
+                if (newCloudIds.has(oldCloud)) void deleteCloudFileQuiet(oldCloud)
                 else deletedCloudIds.add(oldCloud)
               }
               previews[target.id] = cloudFileUrl(up.id)
@@ -280,7 +357,11 @@ async function onFiles(e: Event) {
               accepted += 1
             } catch (err) {
               uploadStates[target.id] = 'error'
-              message.value = err instanceof Error ? err.message : '上传失败，请重试'
+              if (err instanceof QuotaError) {
+                quotaNotice.value = { remaining: err.remainingBytes, incoming: err.incomingBytes }
+              } else {
+                message.value = err instanceof Error ? err.message : '上传失败，请重试'
+              }
             }
           } else {
             await writeOpfsFile(target.id, file)
@@ -408,7 +489,7 @@ async function save() {
     // 云端：先完成空间同步，再清理已删除的云端文件；任一步失败则留在维护模式重试。
     if (canWriteCloud()) {
       await saveSpace({ level1: l1rows, level2: l2rows })
-      for (const cid of deletedCloudIds) await deleteCloudFile(cid)
+      for (const cid of deletedCloudIds) await deleteCloudFileQuiet(cid)
       deletedCloudIds.clear()
       void refreshUsage()
     }
@@ -440,8 +521,13 @@ async function save() {
           {{ restoreConfirm ? '确认恢复？' : '恢复预置方案' }}
         </button>
         <button v-if="restoreConfirm" type="button" class="ghost" @click="restoreConfirm = false">取消</button>
-        <span v-if="canWriteCloud() && auth.usage" class="usage">已用 {{ mb(auth.usage.used) }} / {{ mb(STORAGE_LIMIT) }}</span>
         <span class="msg">{{ message }}</span>
+      </div>
+
+      <!-- 顶部容量栏：镂空圆环 + 精确用量 + 文件管理入口 -->
+      <div v-if="canWriteCloud()" class="capacity">
+        <StorageRing :used="usage.usedBytes" :quota="usage.quotaBytes" :size="46" :stroke="5" compact />
+        <button type="button" class="mini" @click="showFiles = true">管理云端文件</button>
       </div>
 
       <div class="body">
@@ -525,6 +611,30 @@ async function save() {
         </button>
       </footer>
 
+    <CloudFilesDialog
+      v-if="showFiles"
+      :ref-map="draftRefMap"
+      @close="showFiles = false"
+      @changed="onFilesChanged"
+    />
+
+    <!-- 空间不足引导：拦截上传 + 一键去清理旧文件 -->
+    <Teleport to="body">
+      <div v-if="quotaNotice" class="q-mask" role="presentation" @click.self="quotaNotice = null">
+        <div class="q-card" role="alertdialog" aria-modal="true" aria-label="空间不足">
+          <h3>空间不足</h3>
+          <p class="q-line">
+            剩余 <b>{{ mb(quotaNotice.remaining) }}</b>，当前文件 <b>{{ mb(quotaNotice.incoming) }}</b>。
+          </p>
+          <p class="q-sub">删除不用的旧音频、图片即可释放空间，删除后立即生效。</p>
+          <div class="q-acts">
+            <button type="button" class="ghost" @click="quotaNotice = null">取消</button>
+            <button type="button" class="primary" @click="goCleanup">去清理旧文件</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <input
       ref="fileInput"
       type="file"
@@ -595,15 +705,82 @@ async function save() {
   margin-left: auto;
   text-align: right;
 }
-.usage {
+/* 顶部容量栏 */
+.capacity {
   flex: 0 0 auto;
-  margin-left: auto;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--line);
+}
+.capacity .mini {
+  border: none;
+  background: var(--fill);
   color: var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.msg {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+  text-align: right;
+}
+/* 空间不足弹窗 */
+.q-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+.q-card {
+  width: min(360px, 100%);
+  background: var(--card);
+  color: var(--text);
+  border-radius: var(--r-l);
+  padding: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);
+}
+.q-card h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.q-line {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.q-line b {
+  color: #e0300e;
   font-variant-numeric: tabular-nums;
 }
-.usage + .msg {
-  margin-left: 14px;
+.q-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.q-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.q-acts button {
+  font-size: 13px;
+  padding: 9px 18px;
+  border-radius: 999px;
 }
 .fstate {
   flex: 0 0 auto;
@@ -795,7 +972,8 @@ button:disabled {
 @media (max-width: 560px) {
   .bar,
   .toolbar,
-  .footer {
+  .footer,
+  .capacity {
     padding-left: 14px;
     padding-right: 14px;
   }

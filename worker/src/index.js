@@ -11,11 +11,11 @@
  *   GET  /api/space             我的空间（鉴权；无数据时自动复制 admin 模板）
  *   PUT  /api/space             保存我的空间（鉴权）
  *   POST /api/space/reset       我的空间重置为默认模板（鉴权）
- *   GET  /api/usage             已用容量 {used,limit}（鉴权）
- *   POST /api/files             上传文件 multipart（鉴权；120MB 校验）
- *   GET  /api/files             我的文件列表（鉴权）
+ *   GET  /api/usage             已用容量 {usedBytes,quotaBytes}（鉴权）
+ *   POST /api/files             上传文件 multipart（鉴权；写入前校验 usedBytes+size<=quotaBytes，超额 413）
+ *   GET  /api/files             我的文件列表 + 实时用量（鉴权）
  *   GET  /api/files/:id         文件内容（公开直链，id 为不可猜测 uuid）
- *   DELETE /api/files/:id       删除文件（鉴权，仅 owner）
+ *   DELETE /api/files/:id       删除文件（鉴权，仅 owner；返回删除后 usedBytes）
  *
  * 安全：密码 PBKDF2-SHA256(10 万迭代) 加盐；JWT(HS256, 30 天)；
  *       文件公开读依赖不可猜测 uuid；CORS 白名单反射 env.ALLOWED_ORIGINS。
@@ -34,7 +34,8 @@ export default {
       return resp
     } catch (err) {
       const status = err?.status ?? 500
-      return json({ error: err?.message ?? '服务器内部错误' }, status, cors)
+      // extra 用于配额类错误携带结构化字段（usedBytes / quotaBytes / incomingBytes 等）
+      return json({ error: err?.message ?? '服务器内部错误', ...(err?.extra ?? {}) }, status, cors)
     }
   },
 }
@@ -63,9 +64,10 @@ function json(obj, status = 200, cors = {}) {
   })
 }
 
-function fail(status, message) {
+function fail(status, message, extra) {
   const err = new Error(message)
   err.status = status
+  if (extra) err.extra = extra
   throw err
 }
 
@@ -223,6 +225,51 @@ async function saveSpaceRow(env, userId, data) {
     .run()
 }
 
+/** 统一的容量视图：{usedBytes, quotaBytes}（前端圆环与提示都用这两个字段）。 */
+async function quotaView(env, userId) {
+  return { usedBytes: await usedBytes(env, userId), quotaBytes: LIMIT }
+}
+
+/**
+ * 从某个空间 JSON 中摘除对指定云端文件的引用。
+ * admin 删除默认模板文件时调用：模板是所有用户首次进入时的复制源，
+ * 留着悬空 cloud_id 会让所有人看到失效素材，因此同步清理这条"公共记录"。
+ * 返回是否真的改动了内容。
+ */
+async function stripFileFromSpace(env, userId, fileId) {
+  const row = await spaceRow(env, userId)
+  if (!row) return false
+  let data
+  try {
+    data = JSON.parse(row.data)
+  } catch {
+    return false
+  }
+  if (!Array.isArray(data?.level2)) return false
+  let changed = false
+  for (const item of data.level2) {
+    if (!Array.isArray(item?.files)) continue
+    const removedLocalIds = new Set()
+    const kept = item.files.filter((f) => {
+      if (f && f.cloud_id === fileId) {
+        removedLocalIds.add(f.id)
+        return false
+      }
+      return true
+    })
+    if (kept.length === item.files.length) continue
+    item.files = kept
+    changed = true
+    // config.sequence 里保存的是本地 file.id，一并移除，避免播放序列指向空文件
+    if (Array.isArray(item.config?.sequence)) {
+      item.config.sequence = item.config.sequence.filter((id) => !removedLocalIds.has(id))
+    }
+  }
+  if (!changed) return false
+  await saveSpaceRow(env, userId, data)
+  return true
+}
+
 // ── 路由 ─────────────────────────────────────────────────
 
 async function route(request, env, url) {
@@ -274,7 +321,12 @@ async function route(request, env, url) {
     const auth = await requireAuth(request, env)
     const user = await getUserById(env, auth.uid)
     if (!user) fail(401, '用户不存在')
-    return json({ user: publicUser(user), usage: { used: await usedBytes(env, auth.uid), limit: LIMIT } }, 200, cors)
+    const q = await quotaView(env, auth.uid)
+    return json(
+      { user: publicUser(user), usage: { ...q, used: q.usedBytes, limit: q.quotaBytes } },
+      200,
+      cors,
+    )
   }
 
   // ── 默认模板空间 ──
@@ -317,7 +369,8 @@ async function route(request, env, url) {
   // ── 容量 ──
   if (path === '/api/usage' && method === 'GET') {
     const auth = await requireAuth(request, env)
-    return json({ used: await usedBytes(env, auth.uid), limit: LIMIT }, 200, cors)
+    const q = await quotaView(env, auth.uid)
+    return json({ ...q, used: q.usedBytes, limit: q.quotaBytes }, 200, cors)
   }
 
   // ── 文件 ──
@@ -327,10 +380,28 @@ async function route(request, env, url) {
     const file = form.get('file')
     if (!(file instanceof File)) fail(400, '缺少文件字段 file')
     if (!/^audio\//.test(file.type) && !/^image\//.test(file.type)) fail(415, '仅支持音频和图片')
-    if (file.size > 10 * 1024 * 1024) fail(413, '单个文件不能超过 10MB')
+    if (file.size > MAX_FILE_BYTES) {
+      fail(413, `单个文件不能超过 ${mb(MAX_FILE_BYTES)}`, {
+        code: 'FILE_TOO_LARGE',
+        incomingBytes: file.size,
+        quotaBytes: LIMIT,
+      })
+    }
+    // 写入前严格校验：已用 + 本次 <= 配额
     const used = await usedBytes(env, auth.uid)
     if (used + file.size > LIMIT) {
-      fail(413, `云盘空间不足：已用 ${mb(used)} / 120MB，本次需 ${mb(file.size)}。请先删除不需要的文件再试`)
+      const remaining = Math.max(0, LIMIT - used)
+      fail(
+        413,
+        `云盘空间不足：剩余 ${mb(remaining)}，当前文件 ${mb(file.size)}，已用 ${mb(used)} / ${mb(LIMIT)}。请先删除不需要的旧文件`,
+        {
+          code: 'QUOTA_EXCEEDED',
+          usedBytes: used,
+          quotaBytes: LIMIT,
+          incomingBytes: file.size,
+          remainingBytes: remaining,
+        },
+      )
     }
     const id = uuid()
     const buf = await file.arrayBuffer()
@@ -338,7 +409,12 @@ async function route(request, env, url) {
       .prepare('INSERT INTO user_files (id, user_id, name, mime, size, data, created_at) VALUES (?,?,?,?,?,?,?)')
       .bind(id, auth.uid, file.name, file.type, file.size, buf, now())
       .run()
-    return json({ id, name: file.name, mime: file.type, size: file.size, used: used + file.size, limit: LIMIT }, 200, cors)
+    const q = { usedBytes: used + file.size, quotaBytes: LIMIT }
+    return json(
+      { id, name: file.name, mime: file.type, size: file.size, ...q, used: q.usedBytes, limit: q.quotaBytes },
+      200,
+      cors,
+    )
   }
   if (path === '/api/files' && method === 'GET') {
     const auth = await requireAuth(request, env)
@@ -346,7 +422,8 @@ async function route(request, env, url) {
       .prepare('SELECT id, name, mime, size, created_at FROM user_files WHERE user_id = ? ORDER BY created_at DESC')
       .bind(auth.uid)
       .all()
-    return json({ files: results, used: await usedBytes(env, auth.uid), limit: LIMIT }, 200, cors)
+    const q = await quotaView(env, auth.uid)
+    return json({ files: results ?? [], ...q, used: q.usedBytes, limit: q.quotaBytes }, 200, cors)
   }
   const fileMatch = path.match(/^\/api\/files\/([A-Za-z0-9-]+)$/)
   if (fileMatch && method === 'GET') {
@@ -367,11 +444,28 @@ async function route(request, env, url) {
   }
   if (fileMatch && method === 'DELETE') {
     const auth = await requireAuth(request, env)
-    const row = await env.DB.prepare('SELECT user_id FROM user_files WHERE id = ?').bind(fileMatch[1]).first()
-    if (!row) return json({ ok: true }, 200, cors)
+    const row = await env.DB.prepare('SELECT user_id, size FROM user_files WHERE id = ?').bind(fileMatch[1]).first()
+    if (!row) {
+      // 已不存在：幂等返回当前用量，前端无需特殊处理
+      return json({ ok: true, freedBytes: 0, ...(await quotaView(env, auth.uid)) }, 200, cors)
+    }
     if (row.user_id !== auth.uid) fail(403, '只能删除自己的文件')
     await env.DB.prepare('DELETE FROM user_files WHERE id = ?').bind(fileMatch[1]).run()
-    return json({ ok: true, used: await usedBytes(env, auth.uid) }, 200, cors)
+    // admin 的文件是默认模板（公共记录）的素材来源，删除后同步摘除模板引用
+    let templateUpdated = false
+    if (auth.role === 'admin') {
+      try {
+        templateUpdated = await stripFileFromSpace(env, '__admin__', fileMatch[1])
+      } catch {
+        // 模板清理失败不应阻塞删除主流程
+      }
+    }
+    const q = await quotaView(env, auth.uid)
+    return json(
+      { ok: true, freedBytes: row.size ?? 0, templateUpdated, ...q, used: q.usedBytes, limit: q.quotaBytes },
+      200,
+      cors,
+    )
   }
 
   fail(404, '接口不存在')
@@ -381,6 +475,9 @@ async function route(request, env, url) {
 
 /** 单用户云盘限额：120MB。 */
 const LIMIT = 120 * 1024 * 1024
+
+/** 单文件上限：10MB（受 Cloudflare 请求体限制与使用场景约束）。 */
+const MAX_FILE_BYTES = 10 * 1024 * 1024
 
 const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`
 

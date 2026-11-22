@@ -7,9 +7,9 @@
  * - admin 登录维护：PUT /api/space/admin（更新默认模板）
  * - 文件：POST /api/files 上传 → cloud_id 引用；GET /api/files/:id 公开直链
  */
-import { CLOUD_API_BASE } from '../config'
+import { CLOUD_API_BASE, STORAGE_LIMIT } from '../config'
 import type { Level1Item, Level2Item } from '../db/db'
-import { api, auth, getToken } from './auth'
+import { ApiError, api, auth, getToken } from './auth'
 
 /** 云端是否已配置：未配置时应用回退纯本地模式。 */
 export const cloudAvailable = CLOUD_API_BASE !== ''
@@ -77,18 +77,113 @@ export interface UploadedFile {
   size: number
 }
 
-/** 上传文件（multipart）。容量超限抛出服务端中文错误信息。 */
-export async function uploadCloudFile(file: File): Promise<UploadedFile> {
-  const form = new FormData()
-  form.append('file', file)
-  return api<UploadedFile>('/api/files', { method: 'POST', body: form })
+/** 容量视图：后端固定返回这两个字段，前端圆环与提示统一使用。 */
+export interface FileUsage {
+  usedBytes: number
+  quotaBytes: number
 }
 
-/** 删除云端文件（仅 owner；404 视为已删除）。 */
-export async function deleteCloudFile(id: string): Promise<void> {
-  await api(`/api/files/${id}`, { method: 'DELETE' }).catch(() => {
-    /* 文件不存在等场景视为已删除 */
+/** 云端文件元信息（列表用，不含二进制）。 */
+export interface CloudFileMeta {
+  id: string
+  name: string
+  mime: string
+  size: number
+  created_at: number
+}
+
+export interface FileListResult extends FileUsage {
+  files: CloudFileMeta[]
+}
+
+/** 容量不足：携带后端返回的具体数值，供弹窗写清"剩余/当前文件"。 */
+export class QuotaError extends Error {
+  usedBytes: number
+  quotaBytes: number
+  incomingBytes: number
+  remainingBytes: number
+
+  constructor(message: string, usedBytes: number, quotaBytes: number, incomingBytes: number, remainingBytes: number) {
+    super(message)
+    this.name = 'QuotaError'
+    this.usedBytes = usedBytes
+    this.quotaBytes = quotaBytes
+    this.incomingBytes = incomingBytes
+    this.remainingBytes = remainingBytes
+  }
+}
+
+/** 兼容 used/limit 与 usedBytes/quotaBytes 两种命名。 */
+function normalizeUsage(raw: { usedBytes?: number; quotaBytes?: number; used?: number; limit?: number }): FileUsage {
+  return {
+    usedBytes: raw.usedBytes ?? raw.used ?? 0,
+    quotaBytes: raw.quotaBytes ?? raw.limit ?? STORAGE_LIMIT,
+  }
+}
+
+/** 同步 auth.usage，让设置页/维护页所有容量显示立即一致（无需刷新页面）。 */
+function absorbUsage(usage: FileUsage): void {
+  if (auth.usage) {
+    auth.usage.used = usage.usedBytes
+    auth.usage.limit = usage.quotaBytes
+  } else {
+    auth.usage = { used: usage.usedBytes, limit: usage.quotaBytes }
+  }
+}
+
+/** 列表 + 实时用量（鉴权，仅返回当前账号的文件）。 */
+export async function listCloudFiles(): Promise<FileListResult> {
+  const r = await api<FileListResult & { used?: number; limit?: number }>('/api/files')
+  const usage = normalizeUsage(r)
+  absorbUsage(usage)
+  return { files: r.files ?? [], ...usage }
+}
+
+/** 删除单个云端文件；返回删除后的最新用量（并同步 auth.usage）。 */
+export async function deleteCloudFile(id: string): Promise<FileUsage> {
+  const r = await api<FileUsage & { used?: number; limit?: number }>(`/api/files/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
   })
+  const usage = normalizeUsage(r)
+  absorbUsage(usage)
+  return usage
+}
+
+/** 清理型删除：失败不打扰主流程（替换/丢弃草稿时用）。 */
+export async function deleteCloudFileQuiet(id: string): Promise<void> {
+  await deleteCloudFile(id).catch(() => {})
+}
+
+/** 上传文件（multipart）。配额不足抛 QuotaError，其余错误原样抛出。 */
+export async function uploadCloudFile(file: File): Promise<UploadedFile & FileUsage> {
+  const form = new FormData()
+  form.append('file', file)
+  try {
+    const r = await api<UploadedFile & FileUsage & { used?: number; limit?: number }>('/api/files', {
+      method: 'POST',
+      body: form,
+    })
+    const usage = normalizeUsage(r)
+    absorbUsage(usage)
+    return { ...r, ...usage }
+  } catch (e) {
+    if (e instanceof ApiError && e.payload?.code === 'QUOTA_EXCEEDED') {
+      const p = e.payload as Record<string, number>
+      throw new QuotaError(
+        e.message,
+        p.usedBytes ?? 0,
+        p.quotaBytes ?? STORAGE_LIMIT,
+        p.incomingBytes ?? file.size,
+        p.remainingBytes ?? Math.max(0, (p.quotaBytes ?? STORAGE_LIMIT) - (p.usedBytes ?? 0)),
+      )
+    }
+    throw e
+  }
+}
+
+/** 剩余可用字节（不小于 0）。 */
+export function remainingBytes(usage: { usedBytes: number; quotaBytes: number }): number {
+  return Math.max(0, usage.quotaBytes - usage.usedBytes)
 }
 
 /** 云端文件直链（uuid 不可猜测，公开只读；供 audio/img src 直接使用）。 */

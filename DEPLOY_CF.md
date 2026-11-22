@@ -191,17 +191,53 @@ curl https://api.你的域名/api/health
 
 ---
 
+## 附：接口一览
+
+除标注「公开」外均需 `Authorization: Bearer <token>`，服务端按 JWT 的 `uid` 隔离数据。
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/health` | 健康检查（公开） |
+| POST | `/api/register` `/api/login` | 注册 / 登录（公开） |
+| GET | `/api/me` | 当前用户 + 实时用量 |
+| GET | `/api/space/admin` | 默认模板空间（公开只读） |
+| PUT | `/api/space/admin` | 保存默认模板（仅 admin） |
+| GET / PUT | `/api/space` | 我的空间读写（首次 GET 自动复制模板） |
+| POST | `/api/space/reset` | 重置为默认模板 |
+| GET | `/api/usage` | `{ usedBytes, quotaBytes }`，配额固定 120MB |
+| POST | `/api/files` | multipart 上传；写入前校验 `used+size<=quota`，超额返回 **413** + `{ code:'QUOTA_EXCEEDED', usedBytes, quotaBytes, incomingBytes, remainingBytes }` |
+| GET | `/api/files` | `{ files:[{id,name,mime,size,created_at}], usedBytes, quotaBytes }` |
+| GET | `/api/files/:id` | 文件内容（公开直链，id 为不可猜测 uuid） |
+| DELETE | `/api/files/:id` | 仅 owner；返回 `{ ok, freedBytes, usedBytes, quotaBytes, templateUpdated }` |
+
+> `DELETE` 若由 admin 执行，会同时把该文件从 `__admin__` 默认模板 JSON 中摘除（含 `config.sequence`），避免所有用户的模板留下失效素材；`templateUpdated` 表示是否发生了这步清理。
+
+---
+
 ## 附：本地开发调试（可选）
 
-```bash
-# 本地 D1 建表（--local 使用 .wrangler/ 下的本地模拟库）
-npx wrangler d1 execute liansheng-db --local --file=worker/schema.sql
+最快的方式是零依赖的内存后端（真实 Worker 代码 + 内存 D1）：
 
-# 本地起 Worker（默认 http://127.0.0.1:8787；密钥读 worker/.dev.vars）
-cd worker && npx wrangler dev
+```bash
+cd worker && node mock-server.mjs      # 监听 http://127.0.0.1:8787
 ```
 
-本地联调前端：把 `src/config.ts` 的 `CLOUD_API_BASE` 临时设为 `http://127.0.0.1:8787`，`npm run dev` 后即可注册/登录/上传全流程测试。
+```bash
+# 项目根目录建 .env.local（已被 .gitignore 忽略，不会打包上线）
+echo VITE_CLOUD_API_BASE=http://127.0.0.1:8787 > .env.local
+npm run dev
+```
+
+`src/config.ts` 读的是 `import.meta.env.VITE_CLOUD_API_BASE`，**不设置时为空串**，线上仍是纯本地模式，所以这个文件不要提交。
+
+需要真 D1 时再用 wrangler：
+
+```bash
+npx wrangler d1 execute liansheng-db --local --file=worker/schema.sql
+cd worker && npx wrangler dev   # 密钥读 worker/.dev.vars
+```
+
+接口回归测试：`cd worker && node test.mjs`（内存 D1，覆盖注册/登录/空间/上传/配额/删除）。
 
 ## 常见问题
 

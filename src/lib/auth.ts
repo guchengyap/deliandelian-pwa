@@ -93,14 +93,27 @@ interface ApiAuth {
   usage?: Usage
 }
 
-/** 统一请求封装：注入 Bearer，非 2xx 抛出服务端 message。 */
+/** 接口错误：保留 HTTP 状态与服务端结构化字段（配额类错误需要 usedBytes 等）。 */
+export class ApiError extends Error {
+  status: number
+  payload: (Record<string, unknown> & { error?: string }) | null
+
+  constructor(message: string, status: number, payload: (Record<string, unknown> & { error?: string }) | null) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.payload = payload
+  }
+}
+
+/** 统一请求封装：注入 Bearer，非 2xx 抛出 ApiError（message 为服务端文案）。 */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   const resp = await fetch(`${CLOUD_API_BASE}${path}`, { ...init, headers })
   const data = (await resp.json().catch(() => null)) as (T & { error?: string }) | null
-  if (!resp.ok) throw new Error(data?.error || `请求失败（${resp.status}）`)
+  if (!resp.ok) throw new ApiError(data?.error || `请求失败（${resp.status}）`, resp.status, data)
   return data as T
 }
 
