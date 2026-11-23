@@ -178,10 +178,13 @@ const safetyOpen = ref(false)
         </svg>
       </button>
       <div v-if="safetyOpen" class="safety-body">
-        <p v-for="(n, i) in safety.entries" :key="i" class="safety-entry">
-          <template v-if="n.head"><b>{{ n.head }}</b><span>：{{ n.body }}</span></template>
-          <template v-else>{{ n.body }}</template>
-        </p>
+        <div v-for="(n, i) in safety.entries" :key="i" class="safety-entry">
+          <p v-if="n.head" class="se-head">
+            <span v-if="n.no" class="se-no">{{ n.no }}</span>
+            <span class="se-title">{{ n.head }}</span>
+          </p>
+          <p v-if="n.body" class="se-body">{{ n.body }}</p>
+        </div>
       </div>
     </section>
 
@@ -473,18 +476,35 @@ const safetyOpen = ref(false)
   border-top: 1px dashed rgba(222, 138, 42, 0.3);
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
 }
+/* 每条两行：第一行序号+粗标题，第二行正文与标题首字垂直对齐 */
 .safety-entry {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.7;
+  display: flex;
+  flex-direction: column;
 }
-.safety-entry b {
+.se-head {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
+  line-height: 1.5;
 }
-.safety-entry span {
+.se-no {
+  flex: 0 0 auto;
+  width: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.se-title {
+  min-width: 0;
+}
+.se-body {
+  margin: 2px 0 0 24px; /* 18px 序号宽 + 6px 间距 = 与标题首字对齐 */
+  font-size: 12px;
+  line-height: 1.65;
   color: var(--muted);
 }
 

@@ -33,22 +33,41 @@ const PRE_NUMBERED = /^[零一二三四五六七八九十]+、/
  */
 export interface SafetyCard {
   key: string
-  /** 卡片标题，如「练前安全提示（所有练习保持）」 */
+  /** 卡片标题，如「练前安全提示」 */
   title: string
-  /** 解析后的条目：head 为「N. 短标题」（加粗展示），body 为说明文字 */
-  entries: { head: string; body: string }[]
+  /** 解析后的条目：no 为序号（与 head 同行加粗），head 为短标题，body 为第二行说明 */
+  entries: { no: string; head: string; body: string }[]
 }
 
-/** 行格式「1. 标题：正文」；无匹配的行整体作为正文兜底。 */
+/**
+ * 解析提示卡 note，支持两种行格式：
+ * - 两行式：「1. 标题」下一行跟正文（自定义模式里的初始格式）；
+ * - 单行式（兼容旧数据）：「1. 标题：正文」冒号后自动拆为正文。
+ * 无序号的行兜底为纯正文条目。
+ */
 function parseNoteEntries(note: string): SafetyCard['entries'] {
-  return note
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const m = line.match(/^(\d+[、.．][^：:]+)[：:](.*)$/)
-      return m ? { head: m[1]!, body: m[2]!.trim() } : { head: '', body: line }
-    })
+  const entries: SafetyCard['entries'] = []
+  for (const raw of note.split(/\n+/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const m = line.match(/^(\d+)[、.．]\s*(.*)$/)
+    if (m) {
+      let head = m[2]!.trim()
+      let body = ''
+      const ci = head.search(/[：:]/)
+      if (ci >= 0) {
+        body = head.slice(ci + 1).trim()
+        head = head.slice(0, ci).trim()
+      }
+      entries.push({ no: `${m[1]}.`, head, body })
+    } else if (entries.length && !entries[entries.length - 1]!.body) {
+      // 紧跟标题行的正文行
+      entries[entries.length - 1]!.body = line
+    } else {
+      entries.push({ no: '', head: '', body: line })
+    }
+  }
+  return entries
 }
 
 function isSafetyGroup(children: Level2Item[]): boolean {
