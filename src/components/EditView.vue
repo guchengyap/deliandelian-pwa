@@ -596,14 +596,6 @@ async function save() {
                 <circle cx="8.5" cy="15" r="1.9" />
               </svg>
             </span>
-            <input v-model="g.title" class="g-title" aria-label="一级项标题" />
-            <span
-              v-if="g.items.some((i) => i.config?.notesCard)"
-              class="safety-chip"
-              title="该板块渲染为当日页顶部「练前安全提示」卡，不参与打卡与编号"
-            >
-              顶部提示卡
-            </span>
             <div class="order-btns">
               <button
                 type="button"
@@ -626,6 +618,14 @@ async function save() {
                 ↓
               </button>
             </div>
+            <input v-model="g.title" class="g-title" aria-label="一级项标题" />
+            <span
+              v-if="g.items.some((i) => i.config?.notesCard)"
+              class="safety-chip"
+              title="该板块渲染为当日页顶部「练前安全提示」卡，不参与打卡与编号"
+            >
+              顶部提示卡
+            </span>
             <button type="button" class="danger" @click="deleteGroup(g.id)">
               {{ confirmGroupId === g.id ? '确认删除？' : '删除' }}
             </button>
@@ -656,7 +656,6 @@ async function save() {
                   <circle cx="8.5" cy="8.5" r="1.5" />
                 </svg>
               </span>
-              <input v-model="item.title" class="i-title" placeholder="标题" aria-label="二级项标题" />
               <div class="order-btns">
                 <button
                   type="button"
@@ -679,6 +678,7 @@ async function save() {
                   ↓
                 </button>
               </div>
+              <input v-model="item.title" class="i-title" placeholder="标题" aria-label="二级项标题" />
               <button type="button" class="danger" @click="deleteItem(g, item.id)">删除</button>
             </div>
 
@@ -959,15 +959,24 @@ async function save() {
 .handle svg {
   display: block;
 }
-/* 一级拖动手柄：双排网格粗点 + 主色调 */
+/* 一级拖动手柄：主色徽章底框，一眼区分层级 */
+.group-handle {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-s);
+  background: var(--accent-soft);
+  justify-content: center;
+}
 .group-handle svg {
-  width: 13px;
-  height: 19px;
+  width: 12px;
+  height: 18px;
   fill: var(--accent);
 }
-/* 二级拖动手柄：小方点 + 浅灰 */
+/* 二级拖动手柄：小方点 + 浅灰，低调不抢眼 */
 .item-handle {
   cursor: grab;
+  padding: 0 4px;
 }
 .item-handle svg {
   width: 11px;
@@ -995,10 +1004,15 @@ async function save() {
 .order:disabled {
   opacity: 0.32;
 }
+/* 一级大标题：明显加大加粗 + 主色浅底，像正式大标题一样大气 */
 .g-title {
   flex: 1;
-  font-size: 16px;
-  font-weight: 600;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  background: var(--accent-soft);
+  padding: 9px 12px;
 }
 /* 顶部提示卡标识：渲染为当日页安全卡，不参与打卡与编号 */
 .safety-chip {
@@ -1014,10 +1028,11 @@ async function save() {
 }
 .i-title {
   flex: 1;
+  min-width: 0;
 }
 .item {
   border-top: 1px solid var(--line);
-  padding: 14px 0 4px;
+  padding: 14px 0 4px 12px;
   margin-top: 12px;
 }
 .item-head {
