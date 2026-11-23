@@ -88,7 +88,7 @@ const infoTitle = computed(() => {
     case 'about':
       return '关于'
     case 'author':
-      return '关于作者'
+      return '关于作者&支持作者'
     case 'feedback':
       return '投诉与建议'
     case 'thanks':
@@ -184,7 +184,7 @@ async function confirmAdminReset() {
       <!-- 关于 -->
       <template v-if="activeInfo === 'about'">
         <p class="block-text">支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。</p>
-        <p class="block-text muted">项目已完全免费开源。</p>
+        <p class="block-text muted">无广告，免费极简应用。</p>
         <p class="block-text">
           开源仓库：
           <a class="block-link" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">{{ GITHUB_REPO_URL }} ↗</a>
@@ -193,7 +193,7 @@ async function confirmAdminReset() {
 
       <!-- 关于作者 -->
       <template v-else-if="activeInfo === 'author'">
-        <p class="block-text">VINCE DWAN，业余入门唱歌爱好者，不务正业的可怜财务人，希望可以晚饭加鸡腿。</p>
+        <p class="block-text">VINCE DWAN，ENFP，业余入门唱歌爱好者，不务正业的可怜财务人，希望可以晚饭加鸡腿。</p>
         <button type="button" class="donate-card single" @click="openDonate">
           <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
           <span>支付宝扫一扫，加个鸡腿</span>
@@ -217,7 +217,7 @@ async function confirmAdminReset() {
 
       <!-- 鸣谢 -->
       <template v-else>
-        <p class="block-text">感谢 WorkBuddy 及各大智能体（Hy4 flash / DeepSeek-v4.1-Flash / DeepSeek-v4-Pro / GLM-5.3 / GLM-5.3-Flash / GLM-5.3-FlashX）及贡献提示词的网页版 AI（腾讯元宝 / DeepSeek / Google Gemini）的鼎力支持，以及 GitHub 提供的前端服务，Cloudflare 提供的免费后端数据库，DigitalPlat 提供注册的免费域名。</p>
+        <p class="block-text">先鸣谢我自己的鼎力支持吧。</p>
       </template>
     </section>
 
@@ -375,7 +375,7 @@ async function confirmAdminReset() {
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="activeInfo = 'author'">
-        <span>关于作者</span>
+        <span>关于作者&支持作者</span>
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="activeInfo = 'feedback'">
