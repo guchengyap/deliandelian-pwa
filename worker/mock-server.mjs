@@ -49,7 +49,13 @@ function mockD1() {
           )
           return row ? { record_id: row.record_id, updated_at: row.updated_at } : null
         }
-        if (like(sql, 'select name, mime, size, data')) return files.get(api._p[0]) ?? null
+        if (like(sql, 'select name, mime, size, data')) {
+          const f = files.get(api._p[0])
+          if (!f) return null
+          // 模拟生产 D1：BLOB 以 number[] 形态返回（回归覆盖「文件直链十进制文本」bug）
+          const d = f.data
+          return { ...f, data: ArrayBuffer.isView(d) ? Array.from(new Uint8Array(d.buffer, d.byteOffset, d.byteLength)) : Array.isArray(d) ? d : Array.from(new Uint8Array(d)) }
+        }
         if (like(sql, 'from user_files where id')) {
           const f = files.get(api._p[0])
           return f ? { user_id: f.user_id, size: f.size } : null

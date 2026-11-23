@@ -592,10 +592,20 @@ async function route(request, env, url) {
       .bind(fileMatch[1])
       .first()
     if (!row) fail(404, '文件不存在')
-    return new Response(row.data, {
+    // D1 在生产运行时可能把 BLOB 行值反序列化成普通 number[]，
+    // 直接传给 Response 会被 toString() 成 "73,68,51,…" 十进制文本（体积膨胀约 3.5 倍），
+    // 音频/图片完全无法解码（表现为全部「不可用」）。这里统一收敛为二进制 Uint8Array，
+    // 兼容 ArrayBuffer / TypedArray / number[] 三种形态。
+    let body = row.data
+    if (!(body instanceof Uint8Array)) {
+      if (body instanceof ArrayBuffer) body = new Uint8Array(body)
+      else if (ArrayBuffer.isView(body)) body = new Uint8Array(body.buffer, body.byteOffset, body.byteLength)
+      else if (Array.isArray(body)) body = Uint8Array.from(body)
+    }
+    return new Response(body, {
       headers: {
         'Content-Type': row.mime || 'application/octet-stream',
-        'Content-Length': String(row.size),
+        'Content-Length': String(body.byteLength ?? row.size),
         'Cache-Control': 'public, max-age=31536000, immutable',
         ...corsHeaders(request, env),
       },
