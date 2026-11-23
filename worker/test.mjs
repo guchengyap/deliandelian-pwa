@@ -28,6 +28,16 @@ function mockD1() {
       },
       async first() {
         if (like(sql, 'from users where id')) return users.get(api._p[0]) ?? null
+        if (like(sql, 'and id != ?')) {
+          // 资料更新唯一性校验：邮箱/手机号已存在（排除自身）
+          const [email, phone, selfId] = api._p
+          const found = [...users.values()].find(
+            (u) =>
+              u.id !== selfId &&
+              (u.email.toLowerCase() === String(email).toLowerCase() || u.phone === String(phone)),
+          )
+          return found ? { id: found.id } : null
+        }
         if (like(sql, "role = 'admin'")) {
           const admins = [...users.values()].filter((u) => u.role === 'admin').sort((a, b) => a.created_at - b.created_at)
           return admins[0] ?? null
@@ -78,7 +88,17 @@ function mockD1() {
           return { success: true }
         }
         if (like(sql, 'update users')) {
-          if (like(sql, 'token_version')) {
+          if (like(sql, 'set email')) {
+            // UPDATE users SET email = ?, phone = ?, avatar = ? WHERE id = ?
+            const u = users.get(api._p[3])
+            if (u) {
+              for (const key of [u.username, u.email, u.phone]) usersByName.delete(String(key).toLowerCase())
+              u.email = api._p[0]
+              u.phone = api._p[1]
+              u.avatar = api._p[2]
+              for (const key of [u.username, u.email, u.phone]) usersByName.set(String(key).toLowerCase(), u.id)
+            }
+          } else if (like(sql, 'token_version')) {
             // UPDATE users SET pass_hash = ?, token_version = ? WHERE id = ?
             const u = users.get(api._p[2])
             if (u) {
@@ -613,6 +633,58 @@ console.log('T18 管理员协助重置用户密码')
   // 目标用户旧 token 失效（token_version 递增）
   const staleToken = await call('/api/me', { headers: { Authorization: `Bearer ${targetToken}` } })
   check('目标旧 token 失效 401', staleToken.status === 401, String(staleToken.status))
+}
+
+console.log('T19 个人资料更新：绑定邮箱/手机号 + 头像计入容量')
+{
+  // T17 重置密码后旧 token 已因 token_version 失效，重新登录取有效 token
+  const u2login = await json('/api/login', { account: '小明', password: 'newpass99' })
+  check('重新登录 200', u2login.status === 200, JSON.stringify(u2login.body))
+  const u2token = u2login.body?.token
+
+  const put = (body, token = u2token) =>
+    call('/api/me', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    })
+
+  // 未登录
+  const noAuth = await put({ email: 'a@b.com' }, null)
+  check('未登录 401', noAuth.status === 401, String(noAuth.status))
+
+  // 邮箱格式错误
+  const badEmail = await put({ email: 'bad' })
+  check('邮箱格式错误 400', badEmail.status === 400, JSON.stringify(badEmail.body))
+
+  // 手机号格式错误
+  const badPhone = await put({ phone: '12' })
+  check('手机号格式错误 400', badPhone.status === 400)
+
+  // 成功更新邮箱 + 手机号
+  const up = await put({ email: 'new-xm@test.com', phone: '13900000003' })
+  check('更新邮箱手机号 200', up.status === 200, JSON.stringify(up.body))
+  check('返回更新后 user', up.body?.user?.email === 'new-xm@test.com' && up.body?.user?.phone === '13900000003')
+  check('返回 usage', typeof up.body?.usage?.usedBytes === 'number')
+
+  // 唯一性：邮箱撞 admin（大小写不敏感）
+  const dup = await put({ email: 'ADMIN@test.com' })
+  check('邮箱撞车 409', dup.status === 409, JSON.stringify(dup.body))
+
+  // 头像更新（dataURL），计入容量
+  const avatarDataUrl = 'data:image/jpeg;base64,' + 'A'.repeat(1000)
+  const upAvatar = await put({ avatar: avatarDataUrl })
+  check('头像更新 200', upAvatar.status === 200, JSON.stringify(upAvatar.body))
+  check('返回 user.avatar', upAvatar.body?.user?.avatar === avatarDataUrl)
+  check('usage 含头像字节', upAvatar.body?.usage?.usedBytes >= avatarDataUrl.length, String(upAvatar.body?.usage?.usedBytes))
+
+  // 头像置空
+  const clearAvatar = await put({ avatar: null })
+  check('头像置空 200', clearAvatar.status === 200 && clearAvatar.body?.user?.avatar === null)
+
+  // 头像超长被拒
+  const tooBig = await put({ avatar: 'data:image/jpeg;base64,' + 'B'.repeat(300_001) })
+  check('头像超限 400', tooBig.status === 400, JSON.stringify(tooBig.body))
 }
 
 console.log(`\n结果：${pass} 通过 / ${failed} 失败`)

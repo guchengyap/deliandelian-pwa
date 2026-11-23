@@ -207,6 +207,29 @@ export interface AdminResetResult {
   username: string
 }
 
+export interface ProfileUpdateFields {
+  email?: string
+  phone?: string
+  /** dataURL；传 null 表示移除头像。 */
+  avatar?: string | null
+}
+
+/**
+ * 更新个人资料（绑定邮箱 / 绑定手机号 / 头像），保存到 Cloudflare D1。
+ * 头像由前端压缩后以 dataURL 上送，后端计入 120MB 云盘配额并做额度校验。
+ * 成功后同步 auth.user / auth.usage，全站头像与容量显示立即刷新。
+ */
+export async function updateProfile(fields: ProfileUpdateFields): Promise<void> {
+  requireCloud()
+  const r = await api<{ user: AuthUser; usage?: Usage }>('/api/me', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+  cacheUser(r.user)
+  if (r.usage) auth.usage = r.usage
+}
+
 /**
  * 管理员工具：协助重置用户密码（用户遗忘邮箱/手机号时，作者代为重置为临时密码）。
  * identifier 支持用户名 / 注册邮箱 / 手机号任一；仅 role==='admin' 可调用。

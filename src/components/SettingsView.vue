@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { adminResetUserPassword, auth, logout, refreshUsage } from '../lib/auth'
+import { adminResetUserPassword, auth, logout, refreshUsage, updateProfile } from '../lib/auth'
 import { CLOUD_API_BASE, FEEDBACK_EMAIL, STORAGE_LIMIT } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
-import { exportJsonBackup } from '../lib/backup'
+import { exportJsonBackup, importJsonBackup } from '../lib/backup'
 import { currentTheme, setTheme, type ThemeName } from '../lib/theme'
+import { compressAvatar } from '../lib/avatar'
 import StorageRing from './StorageRing.vue'
 import CloudFilesDialog from './CloudFilesDialog.vue'
 
@@ -21,6 +22,8 @@ const emit = defineEmits<{
   login: []
   /** 恢复默认模板（登录用户）。 */
   restore: []
+  /** 导入备份恢复成功后，通知 App 刷新目录与打卡状态。 */
+  imported: []
 }>()
 
 /** 语义化版本号 + 构建信息（vite define 注入），用于核对设备是否运行最新版。 */
@@ -35,9 +38,10 @@ async function pickTheme(name: ThemeName) {
   await setTheme(name)
 }
 
-// ── 备份（导出 JSON）──
+// ── 备份（导出 / 导入 JSON）──
 const busy = ref(false)
 const feedback = ref('')
+const importInput = ref<HTMLInputElement | null>(null)
 async function onExport() {
   if (busy.value) return
   busy.value = true
@@ -47,6 +51,28 @@ async function onExport() {
     feedback.value = `备份已下载（${n} 条数据），保存在浏览器下载目录`
   } catch (e) {
     feedback.value = `导出失败：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    busy.value = false
+  }
+}
+
+function pickImport() {
+  importInput.value?.click()
+}
+
+async function onImportFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || busy.value) return
+  busy.value = true
+  feedback.value = '正在恢复备份…'
+  try {
+    const r = await importJsonBackup(file)
+    feedback.value = `已恢复：目录 ${r.level1} 组 / ${r.level2} 项、打卡 ${r.records} 条`
+    emit('imported')
+  } catch (err) {
+    feedback.value = `导入失败：${err instanceof Error ? err.message : String(err)}（现有数据未受影响）`
   } finally {
     busy.value = false
   }
@@ -88,9 +114,9 @@ const infoTitle = computed(() => {
     case 'about':
       return '关于'
     case 'author':
-      return '关于作者&支持作者'
+      return '作者与支持'
     case 'feedback':
-      return '投诉与建议'
+      return '意见与反馈'
     case 'thanks':
       return '鸣谢'
     default:
@@ -124,6 +150,73 @@ async function copyEmail() {
 
 // ── 显示辅助 ──
 const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_URL}favicon.svg`)
+
+// ── 用户信息与账号安全弹窗 ──
+const showProfile = ref(false)
+const profileEmail = ref('')
+const profilePhone = ref('')
+const profileAvatar = ref<string | null>(null)
+const profileBusy = ref(false)
+const profileErr = ref('')
+const avatarInput = ref<HTMLInputElement | null>(null)
+
+/** 顶部用户卡片点击：登录态 → 打开信息弹窗；游客 → 唤起登录。 */
+function onAccountClick() {
+  if (auth.user) openProfile()
+  else emit('login')
+}
+
+function openProfile() {
+  if (!auth.user) return
+  profileEmail.value = auth.user.email
+  profilePhone.value = auth.user.phone
+  profileAvatar.value = auth.user.avatar
+  profileErr.value = ''
+  showProfile.value = true
+}
+
+function pickAvatar() {
+  avatarInput.value?.click()
+}
+
+async function onAvatarFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    profileAvatar.value = await compressAvatar(file)
+    profileErr.value = ''
+  } catch (err) {
+    profileErr.value = err instanceof Error ? err.message : String(err)
+  }
+}
+
+async function saveProfile() {
+  if (profileBusy.value) return
+  const email = profileEmail.value.trim()
+  const phone = profilePhone.value.trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    profileErr.value = '邮箱格式不正确'
+    return
+  }
+  if (!/^\d{6,20}$/.test(phone)) {
+    profileErr.value = '手机号格式不正确'
+    return
+  }
+  profileBusy.value = true
+  profileErr.value = ''
+  try {
+    await updateProfile({ email, phone, avatar: profileAvatar.value })
+    showProfile.value = false
+    feedback.value = '账号信息已更新'
+    window.setTimeout(() => (feedback.value = ''), 2200)
+  } catch (e) {
+    profileErr.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    profileBusy.value = false
+  }
+}
 
 // ── 管理员工具：协助重置用户密码（仅 admin 可见）──
 const isAdmin = computed(() => auth.user?.role === 'admin')
@@ -185,6 +278,7 @@ async function confirmAdminReset() {
       <template v-if="activeInfo === 'about'">
         <p class="block-text">支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。</p>
         <p class="block-text muted">无广告，免费极简应用。</p>
+        <p class="block-text muted about-version">版本 {{ appVersion }} · {{ buildId }}</p>
       </template>
 
       <!-- 关于作者 -->
@@ -201,9 +295,9 @@ async function confirmAdminReset() {
         </p>
       </template>
 
-      <!-- 投诉与建议 -->
+      <!-- 意见与反馈 -->
       <template v-else-if="activeInfo === 'feedback'">
-        <p class="block-text">不接受投诉~~意见与反馈，以及找不回密码请联系邮箱 {{ FEEDBACK_EMAIL }}（加急可以打赏查看邮箱更快喔）</p>
+        <p class="block-text">如有功能建议、问题反馈或密码找回需求，请联系邮箱 {{ FEEDBACK_EMAIL }}（邮件请注明账号信息；如需加急处理，可在「作者与支持」页赞赏后备注邮箱，优先为您查阅回复）。</p>
         <div class="feedback-row">
           <span class="feedback-email">{{ FEEDBACK_EMAIL }}</span>
           <button type="button" class="mini" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制邮箱' }}</button>
@@ -237,8 +331,14 @@ async function confirmAdminReset() {
       <h1>设置</h1>
     </header>
 
-    <!-- 顶部：账号与头像 -->
-    <section class="account">
+    <!-- 顶部：账号与头像（点击进入用户信息与账号安全弹窗） -->
+    <section
+      class="account"
+      role="button"
+      tabindex="0"
+      @click="onAccountClick"
+      @keydown.enter="onAccountClick"
+    >
       <img class="avatar" :src="avatarSrc" alt="头像" />
       <div class="account-info">
         <p class="username">{{ auth.user ? auth.user.username : '游客模式' }}</p>
@@ -246,10 +346,11 @@ async function confirmAdminReset() {
           {{ auth.user ? (auth.user.role === 'admin' ? '管理员 · 默认模板维护者' : '专属空间已就绪') : '公共只读 · 登录后可定制' }}
         </p>
       </div>
-      <button v-if="!auth.user" type="button" class="pill primary" @click="emit('login')">
+      <span v-if="auth.user" class="account-chevron" aria-hidden="true">›</span>
+      <button v-if="!auth.user" type="button" class="pill primary" @click.stop="emit('login')">
         {{ cloudAvailable ? '登录 / 注册' : '账号' }}
       </button>
-      <button v-else type="button" class="pill" @click="logout">退出登录</button>
+      <button v-else type="button" class="pill" @click.stop="logout">退出登录</button>
     </section>
 
     <!-- 云端容量：镂空圆环 + 精确用量 + 管理入口 -->
@@ -275,10 +376,6 @@ async function confirmAdminReset() {
         </dd>
       </div>
       <div class="row">
-        <dt>跟练项目</dt>
-        <dd>{{ taskCount }} 项</dd>
-      </div>
-      <div class="row">
         <dt>云端状态</dt>
         <dd :class="{ ok: !!auth.user && cloudAvailable }">
           <template v-if="!cloudAvailable">未连接云端（本地模式）</template>
@@ -288,7 +385,10 @@ async function confirmAdminReset() {
       </div>
       <div class="row">
         <dt>数据备份</dt>
-        <dd><button type="button" class="mini" :disabled="busy" @click="onExport">导出 JSON 备份</button></dd>
+        <dd class="backup-actions">
+          <button type="button" class="mini" :disabled="busy" @click="onExport">导出数据备份</button>
+          <button type="button" class="mini" :disabled="busy" @click="pickImport">导入备份恢复</button>
+        </dd>
       </div>
       <div class="row">
         <dt>自定义模式</dt>
@@ -306,11 +406,9 @@ async function confirmAdminReset() {
           </button>
         </dd>
       </div>
-      <div class="row">
-        <dt>应用版本</dt>
-        <dd class="version">{{ appVersion }} · {{ buildId }}</dd>
-      </div>
     </dl>
+
+    <p v-if="feedback" class="backup-feedback" role="status">{{ feedback }}</p>
 
     <div class="appearance">
       <h2>外观</h2>
@@ -367,15 +465,15 @@ async function confirmAdminReset() {
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="emit('help')">
-        <span>使用和自定义教程</span>
+        <span>使用教程与自定义</span>
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="activeInfo = 'author'">
-        <span>关于作者&支持作者</span>
+        <span>作者与支持</span>
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="activeInfo = 'feedback'">
-        <span>投诉与建议</span>
+        <span>意见与反馈</span>
         <span class="chevron" aria-hidden="true">›</span>
       </button>
       <button type="button" class="info-row" @click="activeInfo = 'thanks'">
@@ -401,6 +499,51 @@ async function confirmAdminReset() {
     </Teleport>
 
     <CloudFilesDialog v-if="showFiles" @close="showFiles = false" @changed="onFilesChanged" />
+
+    <!-- 用户信息与账号安全弹窗 -->
+    <Teleport to="body">
+      <Transition name="dlg">
+        <div v-if="showProfile" class="dlg-mask" @click.self="showProfile = false">
+          <div class="profile" role="dialog" aria-modal="true" aria-label="用户信息与账号安全">
+            <p class="dlg-title">用户信息与账号安全</p>
+
+            <div class="profile-avatar-wrap">
+              <button type="button" class="profile-avatar" aria-label="更换头像" @click="pickAvatar">
+                <img :src="profileAvatar || `${base}favicon.svg`" alt="头像" />
+              </button>
+              <button type="button" class="profile-avatar-change" @click="pickAvatar">更换头像</button>
+            </div>
+
+            <label class="profile-field">
+              <span>用户名</span>
+              <input :value="auth.user?.username" type="text" disabled />
+            </label>
+            <label class="profile-field">
+              <span>绑定邮箱</span>
+              <input v-model="profileEmail" type="email" autocomplete="email" placeholder="name@example.com" />
+            </label>
+            <label class="profile-field">
+              <span>绑定手机号</span>
+              <input v-model="profilePhone" inputmode="numeric" autocomplete="tel" placeholder="绑定手机号" />
+            </label>
+            <p class="profile-hint">
+              已绑定信息用于账号找回与身份核验，请妥善保管、切勿向他人泄露；修改前请确认准确无误，以免影响后续找回。
+            </p>
+            <p v-if="profileErr" class="profile-err" role="alert">{{ profileErr }}</p>
+            <div class="dlg-actions">
+              <button type="button" class="dlg-btn ghost" @click="showProfile = false">取消</button>
+              <button type="button" class="dlg-btn primary" :disabled="profileBusy" @click="saveProfile">
+                {{ profileBusy ? '保存中…' : '保存' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 隐藏文件选择：导入备份 / 更换头像 -->
+    <input ref="importInput" type="file" accept=".json,application/json" hidden @change="onImportFile" />
+    <input ref="avatarInput" type="file" accept="image/jpeg,image/png,image/webp" hidden @change="onAvatarFile" />
   </div>
 </template>
 
@@ -443,6 +586,20 @@ async function confirmAdminReset() {
   padding: 16px;
   margin-bottom: 16px;
   transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+  cursor: pointer;
+}
+.account:hover {
+  border-color: var(--accent-bg);
+}
+.account:focus-visible {
+  outline: 2px solid var(--accent-bg);
+  outline-offset: 2px;
+}
+.account-chevron {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: 22px;
+  line-height: 1;
 }
 .avatar {
   flex: 0 0 auto;
@@ -1020,6 +1177,128 @@ dd.ok {
 }
 .dlg-enter-from .dlg,
 .dlg-leave-to .dlg {
+  transform: translateY(12px) scale(0.96);
+  opacity: 0;
+}
+/* ── 数据备份行：导入 / 导出同排并排 ── */
+.backup-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.backup-feedback {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+/* 关于页：版本信息小字 */
+.about-version {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+/* ── 用户信息与账号安全弹窗 ── */
+.profile {
+  width: min(340px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  border-radius: 22px;
+  padding: 20px 20px 16px;
+  text-align: left;
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid var(--card-glass-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 24px 64px rgba(0, 0, 0, 0.22);
+}
+.profile .dlg-title {
+  text-align: center;
+  margin-bottom: 14px;
+}
+.profile-avatar-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.profile-avatar {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--fill);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.6);
+}
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.profile-avatar-change {
+  border: none;
+  background: var(--fill);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 5px 16px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.profile-field {
+  display: block;
+  margin: 10px 0;
+}
+.profile-field span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.profile-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--r-s);
+  background: var(--fill);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.profile-field input:disabled {
+  opacity: 0.55;
+}
+.profile-hint {
+  margin: 12px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  opacity: 0.9;
+}
+.profile-err {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e0300e;
+}
+.profile .dlg-actions {
+  margin-top: 16px;
+}
+.dlg-enter-active .profile,
+.dlg-leave-active .profile {
+  transition: transform 0.26s var(--ease), opacity 0.2s ease;
+}
+.dlg-enter-from .profile,
+.dlg-leave-to .profile {
   transform: translateY(12px) scale(0.96);
   opacity: 0;
 }

@@ -1,6 +1,7 @@
 import { unzip, zip, strFromU8, strToU8 } from 'fflate'
 import {
   db,
+  type ConfigEntry,
   type Level1Item,
   type Level2Item,
   type RecordEntry,
@@ -159,4 +160,67 @@ export async function importBackup(file: File): Promise<ImportResult> {
     level2: payload.level2.length,
     files: opfsNames.size,
   }
+}
+
+/**
+ * 从「导出数据备份」产生的 JSON 文件恢复（目录 + 打卡 + 配置）。
+ * 格式无效时抛错且不落任何数据，绝不覆盖现有有效内容；恢复后由调用方刷新界面状态。
+ */
+export async function importJsonBackup(file: File): Promise<ImportResult> {
+  let payload: {
+    app?: string
+    version?: number
+    records?: unknown
+    level1?: unknown
+    level2?: unknown
+    config?: unknown
+  }
+  try {
+    payload = JSON.parse(await file.text())
+  } catch {
+    throw new Error('备份文件解析失败，可能不是有效的 JSON 备份')
+  }
+  if (!payload || payload.app !== 'liansheng') throw new Error('备份文件格式不正确')
+
+  const records = Array.isArray(payload.records) ? (payload.records as RecordEntry[]) : []
+  const level1 = Array.isArray(payload.level1) ? (payload.level1 as Level1Item[]) : []
+  const level2 = Array.isArray(payload.level2) ? (payload.level2 as Level2Item[]) : []
+  if (!level1.length && !level2.length) throw new Error('备份中缺少练声项目录数据')
+
+  const okL1 = level1.every(
+    (x) => x && typeof x.id === 'string' && typeof x.order === 'number' && typeof x.title === 'string',
+  )
+  const okL2 = level2.every(
+    (x) =>
+      x &&
+      typeof x.id === 'string' &&
+      typeof x.order === 'number' &&
+      typeof x.title === 'string' &&
+      typeof x.level1_id === 'string',
+  )
+  if (!okL1 || !okL2) throw new Error('备份数据结构不正确')
+
+  // 1) 打卡记录合并（updated_at 新者胜；失败会抛错，不触碰目录）
+  await mergeRemoteEntries(records)
+  await pruneDuplicates()
+
+  // 2) 整体恢复练声项目录（保留 id 以免打卡历史断链；order 原样带回）
+  await db.transaction('rw', db.level1, db.level2, async () => {
+    await db.level1.clear()
+    await db.level2.clear()
+    await db.level1.bulkAdd(level1)
+    await db.level2.bulkAdd(level2)
+  })
+
+  // 3) 本地配置（主题等）恢复
+  if (Array.isArray(payload.config)) {
+    const cfg = payload.config as ConfigEntry[]
+    await db.transaction('rw', db.config, async () => {
+      for (const c of cfg) {
+        if (c && typeof c.key === 'string' && typeof c.value === 'string') await db.config.put(c)
+      }
+    })
+  }
+
+  return { records: records.length, level1: level1.length, level2: level2.length, files: 0 }
 }

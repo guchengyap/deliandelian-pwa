@@ -291,6 +291,14 @@ async function onRestoreDefault() {
   }
 }
 
+/** 导入备份恢复成功：本地库已更新，刷新目录与当日打卡状态。 */
+async function onImported() {
+  await reloadCatalog()
+  await loadToday()
+  current.value = Math.min(current.value, Math.max(0, tasks.value.length - 1))
+  showToast('备份已恢复')
+}
+
 const tunerView = ref<InstanceType<typeof TunerView> | null>(null)
 /** 音调仪离开可视状态即释放麦克风，绝不后台监听。 */
 function stopTuner() {
@@ -399,6 +407,7 @@ onBeforeUnmount(() => {
           @help="openHelp"
           @login="onLoginRequired"
           @restore="onRestoreDefault"
+          @imported="onImported"
         />
       </main>
     </template>

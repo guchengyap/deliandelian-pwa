@@ -8,6 +8,7 @@
  *   POST /api/auth/reset-password  忘记密码自助重置 {username,email,phone,password}（禁止重置 admin）
  *   POST /api/admin/reset-user-password  管理员协助重置用户密码 {identifier,newPassword}（仅 admin；递增 token_version）
  *   GET  /api/me                当前用户 + 已用容量（鉴权）
+ *   PUT  /api/me                更新个人资料 {email?,phone?,avatar?}（鉴权；唯一性 + 头像计入配额）
  *   GET  /api/space/admin       默认模板空间（公开；游客与初始模板来源）
  *   PUT  /api/space/admin       保存默认模板空间（仅 admin）
  *   GET  /api/space             我的空间（鉴权；无数据时自动复制 admin 模板）
@@ -232,14 +233,16 @@ async function ensureUserSpace(env, userId) {
   return { row, copied }
 }
 
-/** 已用容量 = 文件字节总和 + 空间 JSON 字节数。 */
+/** 已用容量 = 文件字节总和 + 空间 JSON 字节数 + 头像 dataURL 字节数。 */
 async function usedBytes(env, userId) {
   const files = await env.DB
     .prepare('SELECT COALESCE(SUM(size), 0) AS s FROM user_files WHERE user_id = ?')
     .bind(userId)
     .first()
   const space = await spaceRow(env, userId)
-  return (files?.s ?? 0) + new TextEncoder().encode(space?.data ?? '').length
+  const user = await getUserById(env, userId)
+  const avatarBytes = user?.avatar ? new TextEncoder().encode(user.avatar).length : 0
+  return (files?.s ?? 0) + new TextEncoder().encode(space?.data ?? '').length + avatarBytes
 }
 
 async function saveSpaceRow(env, userId, data) {
@@ -426,6 +429,63 @@ async function route(request, env, url) {
     const q = await quotaView(env, auth.uid)
     return json(
       { user: publicUser(user), usage: { ...q, used: q.usedBytes, limit: q.quotaBytes } },
+      200,
+      cors,
+    )
+  }
+
+  // ── 更新个人资料：绑定邮箱 / 绑定手机号 / 头像 ──
+  // 找回信息（邮箱、手机号）可直接改绑（沿用注册数据结构，无额外短信/邮箱验证码）；
+  // 头像以 dataURL 存储（前端已压缩），计入 120MB 云盘配额并做写入前额度校验。
+  if (path === '/api/me' && method === 'PUT') {
+    const auth = await requireAuth(request, env)
+    const user = await getUserById(env, auth.uid)
+    if (!user) fail(401, '用户不存在')
+    const body = await request.json().catch(() => null)
+    if (!body) fail(400, '请求体不是合法 JSON')
+
+    // 仅更新显式传入的字段，未传则保持原值
+    const email = 'email' in body ? String(body.email ?? '').trim() : user.email
+    const phone = 'phone' in body ? String(body.phone ?? '').trim() : user.phone
+    const avatar = 'avatar' in body ? body.avatar : user.avatar
+
+    if (!RE_EMAIL.test(email)) fail(400, '邮箱格式不正确')
+    if (!RE_PHONE.test(phone)) fail(400, '手机号格式不正确')
+    if (avatar !== null && (typeof avatar !== 'string' || avatar.length > 300_000)) fail(400, '头像数据无效或过大')
+
+    // 全局唯一性：邮箱 / 手机号不可与他账号重复（排除自身）
+    if (email !== user.email || phone !== user.phone) {
+      const dup = await env.DB
+        .prepare('SELECT id FROM users WHERE (email = ?1 COLLATE NOCASE OR phone = ?2) AND id != ?3')
+        .bind(email, phone, auth.uid)
+        .first()
+      if (dup) fail(409, '邮箱或手机号已被其他账号使用')
+    }
+
+    // 头像计入 120MB 配额：先扣除旧头像体积，再校验新头像是否放得下
+    const oldAvatarBytes = user.avatar ? new TextEncoder().encode(user.avatar).length : 0
+    const newAvatarBytes = avatar ? new TextEncoder().encode(avatar).length : 0
+    const used = await usedBytes(env, auth.uid)
+    const base = used - oldAvatarBytes
+    if (base + newAvatarBytes > LIMIT) {
+      const remaining = Math.max(0, LIMIT - base)
+      fail(413, `云盘空间不足：剩余 ${mb(remaining)}，头像 ${mb(newAvatarBytes)}。请先删除不需要的旧文件`, {
+        code: 'QUOTA_EXCEEDED',
+        usedBytes: base,
+        quotaBytes: LIMIT,
+        incomingBytes: newAvatarBytes,
+        remainingBytes: remaining,
+      })
+    }
+
+    await env.DB
+      .prepare('UPDATE users SET email = ?, phone = ?, avatar = ? WHERE id = ?')
+      .bind(email, phone, avatar, auth.uid)
+      .run()
+
+    const q = await quotaView(env, auth.uid)
+    return json(
+      { user: publicUser(await getUserById(env, auth.uid)), usage: { ...q, used: q.usedBytes, limit: q.quotaBytes } },
       200,
       cors,
     )
