@@ -195,7 +195,7 @@ function hasBody(t: PracticeTask): boolean {
       </div>
     </section>
 
-    <p v-if="!groups.length" class="empty">暂无练习内容，去维护模式添加吧。</p>
+    <p v-if="!groups.length" class="empty">暂无练习内容，去自定义模式添加吧。</p>
 
     <!-- 一键取消确认弹窗：毛玻璃 + 黑色轻遮罩 -->
     <Teleport to="body">

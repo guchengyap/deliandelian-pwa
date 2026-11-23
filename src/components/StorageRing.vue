@@ -4,7 +4,7 @@
  *
  * - 圆环中心留白，不显示整数百分比（百分比按下一位精度显示在右侧文字里）；
  * - 阈值配色：<85% 正常、>=85% 黄色、>=95% 红色并提示「空间即将满」（100% 为「空间已满」）；
- * - 设置页与维护模式顶部共用；compact 用于窄条场景。
+ * - 设置页与自定义模式顶部共用；compact 用于窄条场景。
  */
 import { computed } from 'vue'
 
@@ -16,7 +16,7 @@ const props = withDefaults(
     size?: number
     /** 环宽（px）。 */
     stroke?: number
-    /** 紧凑模式：小字号 + 横向排布，用于维护页顶部容量栏。 */
+    /** 紧凑模式：小字号 + 横向排布，用于自定义模式页顶部容量栏。 */
     compact?: boolean
   }>(),
   { size: 92, stroke: 9, compact: false },
@@ -155,7 +155,7 @@ const ariaLabel = computed(
   color: var(--ring-color);
 }
 
-/* 紧凑模式：维护页顶部窄条 */
+/* 紧凑模式：自定义模式页顶部窄条 */
 .storage-ring.compact {
   gap: 10px;
 }

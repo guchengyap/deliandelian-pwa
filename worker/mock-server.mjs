@@ -66,6 +66,11 @@ function mockD1() {
           for (const k of [username, email, phone]) usersByName.set(String(k).toLowerCase(), id)
           return { success: true }
         }
+        if (like(sql, 'update users')) {
+          const u = users.get(api._p[1])
+          if (u) u.pass_hash = api._p[0]
+          return { success: true }
+        }
         if (like(sql, 'into user_spaces')) {
           const [uid, data, ts] = api._p
           if (sql.includes('ON CONFLICT DO NOTHING') && spaces.has(uid)) return { success: false }

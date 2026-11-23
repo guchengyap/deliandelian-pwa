@@ -71,6 +71,12 @@ function mockD1() {
           for (const key of [username, email, phone]) usersByName.set(String(key).toLowerCase(), id)
           return { success: true }
         }
+        if (like(sql, 'update users')) {
+          // UPDATE users SET pass_hash = ? WHERE id = ?
+          const u = users.get(api._p[1])
+          if (u) u.pass_hash = api._p[0]
+          return { success: true }
+        }
         if (like(sql, 'into user_spaces')) {
           const [uid, data, ts] = api._p
           if (sql.includes('ON CONFLICT DO NOTHING') && spaces.has(uid)) return { success: false }
@@ -459,6 +465,67 @@ console.log('T16 打卡记录：云端同步 / 双键去重 / 多用户隔离')
     }),
   })
   check('非法条目跳过、合法条目写入', mixed.status === 200 && mixed.body?.accepted === 1, JSON.stringify(mixed.body))
+}
+
+console.log('T17 忘记密码：多要素核验自助重置')
+{
+  // 缺字段
+  const missing = await json('/api/auth/reset-password', { username: '小明', email: 'xm@test.com', phone: '13800000003' })
+  check('缺新密码 400', missing.status === 400)
+
+  // 邮箱不匹配（模糊提示，不泄露具体哪个字段错）
+  const wrongEmail = await json('/api/auth/reset-password', {
+    username: '小明',
+    email: 'wrong@test.com',
+    phone: '13800000003',
+    password: 'newpass99',
+  })
+  check('邮箱不符 400', wrongEmail.status === 400, JSON.stringify(wrongEmail.body))
+  check('模糊提示不单点指向某字段', !/邮箱不正确|手机号不正确|用户名不正确/.test(wrongEmail.body?.error ?? ''), wrongEmail.body?.error)
+
+  // 手机号不匹配
+  const wrongPhone = await json('/api/auth/reset-password', {
+    username: '小明',
+    email: 'xm@test.com',
+    phone: '13900000000',
+    password: 'newpass99',
+  })
+  check('手机号不符 400', wrongPhone.status === 400)
+
+  // 新密码太短
+  const shortPwd = await json('/api/auth/reset-password', {
+    username: '小明',
+    email: 'xm@test.com',
+    phone: '13800000003',
+    password: '123',
+  })
+  check('新密码过短 400', shortPwd.status === 400)
+
+  // 三项全对 → 重置成功（用户名大小写不敏感）
+  const ok = await json('/api/auth/reset-password', {
+    username: '小明',
+    email: 'XM@test.com',
+    phone: '13800000003',
+    password: 'newpass99',
+  })
+  check('三项全对重置 200', ok.status === 200, JSON.stringify(ok.body))
+
+  // 重置后旧密码登录失败、新密码登录成功
+  const oldLogin = await json('/api/login', { account: '小明', password: 'pass123' })
+  check('旧密码失效 401', oldLogin.status === 401)
+  const newLogin = await json('/api/login', { account: '小明', password: 'newpass99' })
+  check('新密码登录成功', newLogin.status === 200 && newLogin.body?.user?.id === user2Token ? true : newLogin.body?.user?.username === '小明')
+
+  // 禁止重置 admin
+  const adminReset = await json('/api/auth/reset-password', {
+    username: 'admin',
+    email: 'admin@test.com',
+    phone: '13800000001',
+    password: 'hackadmin1',
+  })
+  check('禁止重置 admin 403', adminReset.status === 403, JSON.stringify(adminReset.body))
+  const adminStill = await json('/api/login', { account: 'admin', password: 'secret66' })
+  check('admin 原密码仍有效', adminStill.status === 200)
 }
 
 console.log(`\n结果：${pass} 通过 / ${failed} 失败`)

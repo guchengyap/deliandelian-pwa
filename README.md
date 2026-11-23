@@ -2,7 +2,7 @@
 
 [![Deploy to GitHub Pages](https://github.com/guchengyap/liansheng/actions/workflows/deploy.yml/badge.svg)](https://github.com/guchengyap/liansheng/actions/workflows/deploy.yml)
 
-手机跟练打卡 PWA：内置练习目录，跟着音频逐项练，播完自动打卡。登录后打卡状态与个人数据随账户云端同步，**无需在任何电脑上常驻运行服务**。
+云端多用户练声跟练与打卡 Web 应用：支持跨设备云端同步、自定义练声项目、音频上传与实时音调检测。登录后打卡状态与个人数据随账户云端同步，**无需在任何电脑上常驻运行服务**。
 
 **线上使用** → https://guchengyap.github.io/liansheng/
 
@@ -13,7 +13,7 @@
 - **跟练** — 一屏一项，音频自动连播，播完自动打卡并跳下一项
 - **打卡** — 圆勾单击打卡 / 再点取消；当日页支持一键全打、一键清零
 - **统计** — 今日进度、本周柱状、月历、全年热力图
-- **维护模式** — 登录后可编辑项目结构、上传音频 / 图片（每人 120MB 云盘，超额可就地清理）
+- **自定义模式** — 登录后可编辑项目结构、上传音频 / 图片（每人 120MB 云盘，超额可就地清理）
 - **多主题** — 冰蓝 / 落日橙，自动适配深色模式
 - **离线可用** — Service Worker 全量预缓存，装一次到处用
 
@@ -41,7 +41,7 @@ git add -A && git commit -m "feat: 改了什么" && git push
 
 ## 技术栈
 
-Vite · Vue 3 · TypeScript · Dexie (IndexedDB) · OPFS · vite-plugin-pwa
+Vite · Vue 3 · TypeScript · Dexie (IndexedDB) · OPFS · vite-plugin-pwa（离线安装）
 
 后端：Cloudflare Workers + D1，已接入自有域名 `api.guchengyapls.dpdns.org`（部署与接口见 [DEPLOY_CF.md](DEPLOY_CF.md)）。
 

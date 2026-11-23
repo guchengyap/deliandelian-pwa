@@ -180,6 +180,27 @@ export async function refreshUsage(): Promise<void> {
   }
 }
 
+export interface ResetPasswordFields {
+  username: string
+  email: string
+  phone: string
+  password: string
+}
+
+/**
+ * 忘记密码：自助重置（免第三方发信）。
+ * 多要素核验（用户名 + 注册邮箱 + 注册手机号）三项一致才允许更新密码；
+ * 后端禁止重置 admin 账号。成功后需用户手动用新密码重新登录。
+ */
+export async function resetPassword(fields: ResetPasswordFields): Promise<void> {
+  requireCloud()
+  await api<{ ok: boolean }>('/api/auth/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fields),
+  })
+}
+
 /**
  * 退出登录：清凭证后整页刷新。
  * 会话缓存清理点：auth_token / auth_user 从 localStorage 移除；内存态

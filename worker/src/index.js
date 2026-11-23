@@ -5,6 +5,7 @@
  *   GET  /api/health            健康检查
  *   POST /api/register          注册 {username,email,password,phone,avatar?}
  *   POST /api/login             登录 {account,password}（用户名/邮箱/手机号任一）
+ *   POST /api/auth/reset-password  忘记密码自助重置 {username,email,phone,password}（禁止重置 admin）
  *   GET  /api/me                当前用户 + 已用容量（鉴权）
  *   GET  /api/space/admin       默认模板空间（公开；游客与初始模板来源）
  *   PUT  /api/space/admin       保存默认模板空间（仅 admin）
@@ -324,6 +325,42 @@ async function route(request, env, url) {
     if (!user || !(await verifyPassword(body.password, user.pass_hash))) fail(401, '账号或密码不正确')
     const token = await signToken({ uid: user.id, role: user.role, exp: now() + 30 * 864e5 }, env.JWT_SECRET)
     return json({ token, user: publicUser(user) }, 200, cors)
+  }
+
+  // ── 忘记密码：自助重置（免第三方发信，零成本）──
+  // 多要素核验：username + email + phone 三项完全一致才允许重置；
+  // 出于安全，禁止通过前端自助重置 admin 账号密码（提示联系管理员/控制台重置）。
+  if (path === '/api/auth/reset-password' && method === 'POST') {
+    const body = await request.json().catch(() => null)
+    if (!body?.username || !body?.email || !body?.phone || !body?.password) {
+      fail(400, '请填写用户名、注册邮箱、注册手机号与新密码')
+    }
+    const username = String(body.username).trim()
+    const email = String(body.email).trim()
+    const phone = String(body.phone).trim()
+    const password = String(body.password)
+    if (password.length < 6) fail(400, '新密码至少 6 位')
+    const user = await env.DB
+      .prepare('SELECT * FROM users WHERE username = ?1 COLLATE NOCASE')
+      .bind(username)
+      .first()
+    // 三项全对才通过；任一不匹配都返回同一模糊提示，避免泄露「哪个字段错了」。
+    if (
+      !user ||
+      user.email.toLowerCase() !== email.toLowerCase() ||
+      user.phone !== phone
+    ) {
+      fail(400, '用户名、注册邮箱或注册手机号不匹配，无法重置')
+    }
+    if (user.role === 'admin') {
+      fail(403, '管理员账号不支持自助重置密码，请联系管理员或到控制台重置')
+    }
+    const passHash = await hashPassword(password)
+    await env.DB
+      .prepare('UPDATE users SET pass_hash = ? WHERE id = ?')
+      .bind(passHash, user.id)
+      .run()
+    return json({ ok: true }, 200, cors)
   }
 
   // ── 当前用户 ──

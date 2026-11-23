@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { auth, logout, refreshUsage } from '../lib/auth'
-import { CLOUD_API_BASE, STORAGE_LIMIT } from '../config'
+import { CLOUD_API_BASE, FEEDBACK_EMAIL, GITHUB_REPO_URL, STORAGE_LIMIT } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
 import { exportJsonBackup } from '../lib/backup'
 import { currentTheme, setTheme, type ThemeName } from '../lib/theme'
@@ -10,14 +10,14 @@ import CloudFilesDialog from './CloudFilesDialog.vue'
 
 const props = defineProps<{
   taskCount: number
-  /** 是否处于维护模式（维护页打开时为 true，开关随之点亮）。 */
+  /** 是否处于自定义模式（编辑页打开时为 true，开关随之点亮）。 */
   maintaining: boolean
 }>()
 const emit = defineEmits<{
   back: []
   maintenance: []
   help: []
-  /** 游客点维护开关：打开登录/注册弹层（App 侧同时 toast 提示）。 */
+  /** 游客点自定义开关：打开登录/注册弹层（App 侧同时 toast 提示）。 */
   login: []
   /** 恢复默认模板（登录用户）。 */
   restore: []
@@ -26,6 +26,8 @@ const emit = defineEmits<{
 /** 语义化版本号 + 构建信息（vite define 注入），用于核对设备是否运行最新版。 */
 const appVersion = __APP_VERSION__
 const buildId = __BUILD_ID__
+
+const base = import.meta.env.BASE_URL
 
 const theme = ref<ThemeName>(currentTheme())
 async function pickTheme(name: ThemeName) {
@@ -50,13 +52,13 @@ async function onExport() {
   }
 }
 
-// ── 维护模式开关：游客拦截 ──
+// ── 自定义模式开关：游客拦截 ──
 function onMaintenanceSwitch() {
   if (!auth.user) {
     emit('login') // App 打开登录/注册并提示「请先登录账号」
     return
   }
-  // 维护页打开时开关已点亮；再点关闭不做任何事（退出由维护页按钮负责）。
+  // 编辑页打开时开关已点亮；再点关闭不做任何事（退出由编辑页按钮负责）。
   if (!props.maintaining) emit('maintenance')
 }
 
@@ -76,6 +78,30 @@ onMounted(() => {
 function onFilesChanged(payload: { deletedIds: string[] }) {
   cloudNote.value = `已删除 ${payload.deletedIds.length} 个文件，容量已释放`
   window.setTimeout(() => (cloudNote.value = ''), 2600)
+}
+
+// ── 打赏码：点击放大查看 ──
+const donateImg = ref<string | null>(null)
+function openDonate(name: 'wechat' | 'alipay') {
+  donateImg.value = `${import.meta.env.BASE_URL}donate-${name}.png`
+}
+
+// ── 反馈邮箱：一键复制 ──
+const emailCopied = ref(false)
+async function copyEmail() {
+  try {
+    await navigator.clipboard.writeText(FEEDBACK_EMAIL)
+  } catch {
+    // 剪贴板不可用（非安全上下文）时退回选中文本提示
+    const el = document.createElement('textarea')
+    el.value = FEEDBACK_EMAIL
+    document.body.appendChild(el)
+    el.select()
+    document.execCommand('copy')
+    el.remove()
+  }
+  emailCopied.value = true
+  window.setTimeout(() => (emailCopied.value = false), 1800)
 }
 
 // ── 显示辅助 ──
@@ -143,7 +169,7 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
         <dd><button type="button" class="mini" :disabled="busy" @click="onExport">导出 JSON 备份</button></dd>
       </div>
       <div class="row">
-        <dt>维护模式</dt>
+        <dt>自定义模式</dt>
         <dd>
           <button
             type="button"
@@ -151,7 +177,7 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
             :class="{ on: maintaining }"
             role="switch"
             :aria-checked="maintaining"
-            :aria-label="auth.user ? '维护模式' : '维护模式（需登录）'"
+            :aria-label="auth.user ? '自定义模式' : '自定义模式（需登录）'"
             @click="onMaintenanceSwitch"
           >
             <span class="knob"></span>
@@ -192,11 +218,72 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
 
     <p class="hint">{{ CLOUD_API_BASE ? '打卡状态与个人数据随账户云端同步（多端一致）；练习内容与文件保存在你的云端空间。' : '云端服务未配置，当前为纯本地模式：所有数据仅保存在本机。' }}</p>
 
-    <div class="maintenance">
-      <button type="button" class="entry" @click="emit('help')">
-        帮助与教程 <span aria-hidden="true">›</span>
+    <!-- 板块一：关于 -->
+    <section class="block">
+      <h2>关于</h2>
+      <p class="block-text">
+        支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。
+      </p>
+      <p class="block-text muted">项目已完全免费开源。</p>
+      <a class="block-link" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">
+        开源仓库 {{ GITHUB_REPO_URL }} ↗
+      </a>
+      <p class="block-text muted small">
+        鸣谢：WorkBuddy 及各大智能体（Hy4 flash / DeepSeek-v4.1-Flash / DeepSeek-v4-Pro / GLM-5.3 /
+        GLM-5.3-Flash / GLM-5.3-FlashX）及贡献提示词的网页版 AI（腾讯元宝 / DeepSeek / Google Gemini）的鼎力支持，
+        以及 GitHub 提供的前端服务、Cloudflare 提供的免费后端数据库、DigitalPlat 提供的免费域名。
+      </p>
+    </section>
+
+    <!-- 板块二：使用与自定义教程 -->
+    <section class="block">
+      <button type="button" class="block-entry" @click="emit('help')">
+        <span>
+          <strong>使用与自定义教程</strong>
+          <small>跟练打卡、自定义模式、容量清理、主屏幕安装</small>
+        </span>
+        <span aria-hidden="true" class="chevron">›</span>
       </button>
-    </div>
+    </section>
+
+    <!-- 板块三：作者与打赏 -->
+    <section class="block">
+      <h2>作者与打赏</h2>
+      <p class="block-text">作者：VINCE DWAN，作者很神秘，只留下了神秘打赏二维码，希望顿顿晚饭加鸡腿。</p>
+      <div class="donate-row">
+        <button type="button" class="donate-card" @click="openDonate('wechat')">
+          <img :src="`${base}donate-wechat.png`" alt="微信收款码" />
+          <span>微信</span>
+        </button>
+        <button type="button" class="donate-card" @click="openDonate('alipay')">
+          <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
+          <span>支付宝</span>
+        </button>
+      </div>
+      <p class="block-text muted small">点击收款码可放大查看。</p>
+    </section>
+
+    <!-- 板块四：意见反馈 -->
+    <section class="block">
+      <h2>意见反馈</h2>
+      <div class="feedback-row">
+        <span class="feedback-email">{{ FEEDBACK_EMAIL }}</span>
+        <button type="button" class="mini" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制邮箱' }}</button>
+        <a class="mini-link" :href="`mailto:${FEEDBACK_EMAIL}`">发邮件</a>
+      </div>
+    </section>
+
+    <!-- 打赏码放大预览 -->
+    <Teleport to="body">
+      <Transition name="donate">
+        <div v-if="donateImg" class="donate-mask" @click.self="donateImg = null">
+          <figure class="donate-big">
+            <img :src="donateImg" alt="收款码大图" />
+            <button type="button" class="donate-close" @click="donateImg = null">关闭</button>
+          </figure>
+        </div>
+      </Transition>
+    </Teleport>
 
     <CloudFilesDialog v-if="showFiles" @close="showFiles = false" @changed="onFilesChanged" />
   </div>
@@ -377,7 +464,7 @@ dd.ok {
   opacity: 0.5;
   cursor: default;
 }
-/* iOS 风格开关：维护模式 */
+/* iOS 风格开关：自定义模式 */
 .switch {
   position: relative;
   width: 46px;
@@ -472,8 +559,9 @@ dd.ok {
 .swatch.active .swatch-name {
   color: var(--text);
 }
-.maintenance {
-  margin-top: 24px;
+/* ── 设置页四大信息板块：关于 / 教程 / 打赏 / 反馈 ── */
+.block {
+  margin-top: 16px;
   background: var(--card-glass);
   border: 1px solid var(--card-glass-border);
   -webkit-backdrop-filter: var(--card-blur);
@@ -481,27 +569,171 @@ dd.ok {
   box-shadow: var(--card-glass-shadow);
   transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
   border-radius: var(--r-m);
-  padding: 0 16px;
+  padding: 14px 16px;
 }
-.maintenance button {
+.block h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+}
+.block-text {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.block-text.muted {
+  color: var(--muted);
+}
+.block-text.small {
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+.block-link {
+  display: inline-block;
+  margin: 2px 0 8px;
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.block-link:hover {
+  text-decoration: underline;
+}
+.block-entry {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   width: 100%;
-  padding: 13px 0;
+  padding: 0;
   border: none;
-  border-bottom: 1px solid var(--line);
   background: none;
   color: var(--text);
-  font-size: 14px;
   font-family: inherit;
   cursor: pointer;
+  text-align: left;
 }
-.maintenance button:last-of-type {
-  border-bottom: none;
+.block-entry strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
 }
-.maintenance button span {
+.block-entry small {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.chevron {
   color: var(--accent);
-  font-size: 18px;
+  font-size: 20px;
+  flex: 0 0 auto;
+}
+/* 打赏码 */
+.donate-row {
+  display: flex;
+  gap: 14px;
+  margin: 10px 0 4px;
+}
+.donate-card {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--card-glass-border);
+  background: var(--fill);
+  border-radius: var(--r-s);
+  padding: 10px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.donate-card img {
+  width: 100%;
+  max-width: 150px;
+  border-radius: 6px;
+  display: block;
+}
+.donate-card span {
+  font-size: 12px;
+  color: var(--muted);
+}
+/* 意见反馈 */
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.feedback-email {
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+.mini-link {
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--fill);
+}
+.mini-link:hover {
+  text-decoration: underline;
+}
+/* 打赏码放大预览 */
+.donate-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.6);
+}
+.donate-big {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.donate-big img {
+  max-width: min(78vw, 360px);
+  max-height: 72vh;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
+}
+.donate-close {
+  border: none;
+  background: rgba(255, 255, 255, 0.92);
+  color: #222;
+  font-size: 13px;
+  padding: 8px 22px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.donate-enter-active,
+.donate-leave-active {
+  transition: opacity 0.22s ease;
+}
+.donate-enter-active .donate-big,
+.donate-leave-active .donate-big {
+  transition: transform 0.24s var(--ease);
+}
+.donate-enter-from,
+.donate-leave-to {
+  opacity: 0;
+}
+.donate-enter-from .donate-big,
+.donate-leave-to .donate-big {
+  transform: scale(0.9);
 }
 </style>

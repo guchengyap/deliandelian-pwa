@@ -14,3 +14,9 @@ export const CLOUD_API_BASE: string =
 
 /** 单用户云盘限额：120MB（与 Worker 端 LIMIT 保持一致）。 */
 export const STORAGE_LIMIT = 120 * 1024 * 1024
+
+/** GitHub 原项目仓库地址（设置页「关于」展示，可点击跳转）。 */
+export const GITHUB_REPO_URL = 'https://github.com/guchengyap/liansheng'
+
+/** 反馈邮箱（设置页「意见反馈」展示，支持复制与 mailto）。 */
+export const FEEDBACK_EMAIL = '390079191@qq.com'

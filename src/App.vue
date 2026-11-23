@@ -37,7 +37,7 @@ const reloadKey = ref(0)
 const statsKey = ref(0)
 /** 登录/注册弹层 */
 const showAuth = ref(false)
-/** 是否处于维护模式（供设置页开关点亮）。 */
+/** 是否处于自定义模式（编辑页打开时为 true，开关随之点亮）。 */
 const maintaining = computed(() => overlay.value === 'edit')
 
 /** 当前日期（响应式）：挂后台跨天后回前台/操作前自动修正，避免打卡记错日期。 */
@@ -317,8 +317,8 @@ async function onSaved() {
   tab.value = 'today'
   showToast(
     canWriteCloud()
-      ? '维护已完成，所有修改与文件已保存至云端 ✓'
-      : '维护已完成，修改已保存至本机 ✓',
+      ? '自定义已完成，所有修改与文件已保存至云端 ✓'
+      : '自定义已完成，修改已保存至本机 ✓',
   )
 }
 
@@ -334,7 +334,7 @@ function openHelp() {
   overlay.value = 'help'
 }
 
-/** 设置页维护开关（游客）：打开登录/注册弹层并提示。 */
+/** 设置页自定义开关（游客）：打开登录/注册弹层并提示。 */
 function onLoginRequired() {
   showToast('请先登录账号')
   showAuth.value = true
@@ -381,7 +381,7 @@ onBeforeUnmount(() => {
     <!-- 登录 / 注册弹层：根级挂载，任何界面（含设置页）都能唤起 -->
     <AuthView v-if="showAuth" @close="showAuth = false" @success="onAuthSuccess" />
 
-    <!-- 覆盖层：维护 / 设置 / 帮助 -->
+    <!-- 覆盖层：自定义 / 设置 / 教程 -->
     <template v-if="overlay === 'edit'">
       <EditView @close="closeOverlay" @saved="onSaved" />
     </template>

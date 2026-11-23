@@ -6,7 +6,7 @@ export type ThemeName = 'theme-ice' | 'theme-sunset'
 const THEME_KEY = 'theme'
 const DEFAULT_THEME: ThemeName = 'theme-ice'
 
-/** 状态栏颜色随主题联动（iOS PWA 观感）。 */
+/** 状态栏颜色随主题联动（iOS 添加到主屏幕后的观感）。 */
 const STATUS_COLORS: Record<ThemeName, string> = {
   'theme-ice': '#e9f0f8',
   'theme-sunset': '#fdf8f5',

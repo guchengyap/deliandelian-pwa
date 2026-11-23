@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { login, register } from '../lib/auth'
+import { login, register, resetPassword } from '../lib/auth'
+import { FEEDBACK_EMAIL } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
 
 const emit = defineEmits<{ close: []; success: [] }>()
 
 const base = import.meta.env.BASE_URL
 
-type Mode = 'login' | 'register'
+type Mode = 'login' | 'register' | 'forgot'
 const mode = ref<Mode>('login')
 
 const account = ref('')
@@ -15,13 +16,17 @@ const username = ref('')
 const email = ref('')
 const phone = ref('')
 const password = ref('')
+const password2 = ref('') // 找回密码：二次确认
 const avatar = ref<string | null>(null) // dataURL；空 = 默认 Logo
 const busy = ref(false)
 const error = ref('')
+const okMsg = ref('') // 找回密码成功提示
 
 function switchMode(m: Mode) {
   mode.value = m
   error.value = ''
+  okMsg.value = ''
+  password2.value = ''
 }
 
 // ── 头像：默认 Logo / 本地图片压缩（256px JPEG，控制存储体积）──
@@ -64,12 +69,13 @@ function onAvatarFile(e: Event) {
 async function submit() {
   if (busy.value) return
   error.value = ''
+  okMsg.value = ''
   if (mode.value === 'login') {
     if (!account.value.trim() || !password.value) {
       error.value = '请输入账号与密码'
       return
     }
-  } else {
+  } else if (mode.value === 'register') {
     if (!username.value.trim() || !email.value.trim() || !phone.value.trim() || !password.value) {
       error.value = '请填写全部必填项'
       return
@@ -90,12 +96,34 @@ async function submit() {
       error.value = '密码至少 6 位'
       return
     }
+  } else {
+    // 忘记密码：用户名 + 注册邮箱 + 注册手机号 + 新密码（二次确认）
+    if (!username.value.trim() || !email.value.trim() || !phone.value.trim()) {
+      error.value = '请填写用户名、注册邮箱与注册手机号'
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())) {
+      error.value = '邮箱格式不正确'
+      return
+    }
+    if (!/^\d{6,20}$/.test(phone.value.trim())) {
+      error.value = '手机号格式不正确'
+      return
+    }
+    if (password.value.length < 6) {
+      error.value = '新密码至少 6 位'
+      return
+    }
+    if (password.value !== password2.value) {
+      error.value = '两次输入的新密码不一致'
+      return
+    }
   }
   busy.value = true
   try {
     if (mode.value === 'login') {
       await login(account.value.trim(), password.value)
-    } else {
+    } else if (mode.value === 'register') {
       await register({
         username: username.value.trim(),
         email: email.value.trim(),
@@ -103,6 +131,18 @@ async function submit() {
         password: password.value,
         avatar: avatar.value,
       })
+    } else {
+      await resetPassword({
+        username: username.value.trim(),
+        email: email.value.trim(),
+        phone: phone.value.trim(),
+        password: password.value,
+      })
+      switchMode('login')
+      okMsg.value = '密码已重置，请用新密码登录'
+      account.value = username.value.trim()
+      password.value = ''
+      return
     }
     emit('success') // App 侧整页刷新，本地库随用户空间切换
   } catch (e) {
@@ -146,9 +186,44 @@ async function submit() {
               <span>密码</span>
               <input v-model="password" type="password" autocomplete="current-password" placeholder="••••••" />
             </label>
+            <button type="button" class="forgot" @click="switchMode('forgot')">忘记密码？</button>
             <button type="submit" class="primary" :disabled="busy">
               {{ busy ? '登录中…' : '登录' }}
             </button>
+            <p v-if="okMsg" class="ok-msg" role="status">{{ okMsg }}</p>
+          </form>
+
+          <!-- 忘记密码：多要素核验自助重置 -->
+          <form v-else-if="mode === 'forgot'" class="form" @submit.prevent="submit">
+            <p class="forgot-intro">核验用户名 + 注册邮箱 + 注册手机号，即可设置新密码。</p>
+            <label class="field">
+              <span>用户名 *</span>
+              <input v-model="username" autocomplete="username" placeholder="注册时的用户名" />
+            </label>
+            <label class="field">
+              <span>注册邮箱 *</span>
+              <input v-model="email" type="email" autocomplete="email" placeholder="name@example.com" />
+            </label>
+            <label class="field">
+              <span>注册手机号 *</span>
+              <input v-model="phone" inputmode="numeric" autocomplete="tel" placeholder="注册时填写的手机号" />
+            </label>
+            <label class="field">
+              <span>新密码 *</span>
+              <input v-model="password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+            </label>
+            <label class="field">
+              <span>确认新密码 *</span>
+              <input v-model="password2" type="password" autocomplete="new-password" placeholder="再次输入新密码" />
+            </label>
+            <button type="submit" class="primary" :disabled="busy">
+              {{ busy ? '重置中…' : '重置密码' }}
+            </button>
+            <button type="button" class="forgot back-link" @click="switchMode('login')">‹ 返回登录</button>
+            <p class="forgot-hint">
+              若遗忘注册时的邮箱或手机号，请发送邮件至
+              <a :href="`mailto:${FEEDBACK_EMAIL}`">{{ FEEDBACK_EMAIL }}</a> 联系作者协助找回。
+            </p>
           </form>
 
           <!-- 注册：4 必填 + 头像（无验证码） -->
@@ -341,6 +416,50 @@ async function submit() {
   margin: 12px 0 0;
   font-size: 13px;
   color: #e0300e;
+  text-align: center;
+}
+/* 忘记密码入口与视图 */
+.forgot {
+  align-self: flex-end;
+  margin-top: -6px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+  font-family: inherit;
+}
+.forgot.back-link {
+  align-self: center;
+  margin-top: 2px;
+  font-size: 13px;
+}
+.forgot-intro {
+  margin: -4px 0 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  text-align: center;
+}
+.forgot-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--muted);
+  text-align: center;
+}
+.forgot-hint a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.forgot-hint a:hover {
+  text-decoration: underline;
+}
+.ok-msg {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--accent);
   text-align: center;
 }
 /* 过渡：遮罩淡入淡出，卡片轻微上浮缩放 */

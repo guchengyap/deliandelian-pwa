@@ -3,7 +3,7 @@ import { ref } from 'vue'
 
 const emit = defineEmits<{ back: [] }>()
 
-const tab = ref<'usage' | 'maintenance'>('usage')
+const tab = ref<'usage' | 'custom'>('usage')
 
 /** 步骤式教程：一个 section 是一个小标题，steps 是按顺序的操作步骤，tip 是补充说明。 */
 interface Step {
@@ -66,8 +66,10 @@ const usage: Section[] = [
       { text: '游客直接可用（默认模板只读）。' },
       { text: '设置页「登录 / 注册」后获得专属空间：打卡状态、练习记录与个人空间随账户云端同步，换设备登录即恢复。' },
       { text: '定制内容与上传素材存云端（每人 120MB）。' },
+      { text: '忘记密码：登录框下点「忘记密码？」，填用户名 + 注册邮箱 + 注册手机号并设新密码即可自助重置。' },
       { text: '重要数据可随时在设置页「导出 JSON 备份」离线兜底。' },
     ],
+    tip: '管理员账号不支持自助重置密码（需联系作者）；遗忘注册邮箱或手机号时发邮件联系作者协助找回。',
   },
   {
     title: '查看容量与清理旧文件',
@@ -80,13 +82,13 @@ const usage: Section[] = [
   },
 ]
 
-const maintenance: Section[] = [
+const custom: Section[] = [
   {
-    title: '进入维护模式',
+    title: '进入自定义模式',
     steps: [
-      { text: '设置页打开「维护模式」开关（需登录）。' },
+      { text: '设置页打开「自定义模式」开关（需登录）。' },
     ],
-    tip: '所有改动先进草稿，点「保存并退出维护」才生效并同步云端；点「取消」全部作废。管理员账号的修改即所有人的默认模板（不覆盖他人个人打卡）。',
+    tip: '所有改动先进草稿，点「保存并退出」才生效并同步云端；点「取消」全部作废。管理员账号的修改即所有人的默认模板（不覆盖他人个人打卡）。',
   },
   {
     title: '增删与排序',
@@ -123,7 +125,7 @@ const maintenance: Section[] = [
   {
     title: '恢复默认',
     steps: [
-      { text: '维护模式内：「恢复预置方案」→ 确认 → 保存生效。' },
+      { text: '自定义模式内：「恢复预置方案」→ 确认 → 保存生效。' },
       { text: '登录用户也可在设置页「当前空间」行点「恢复默认模板」一键重置。' },
     ],
   },
@@ -142,7 +144,7 @@ const maintenance: Section[] = [
   <div class="help">
     <header class="bar">
       <button type="button" class="back" @click="emit('back')">‹ 返回</button>
-      <h1>帮助与教程</h1>
+      <h1>使用与自定义教程</h1>
     </header>
 
     <div class="tabs" role="tablist">
@@ -158,15 +160,15 @@ const maintenance: Section[] = [
       <button
         type="button"
         role="tab"
-        :aria-selected="tab === 'maintenance'"
-        :class="{ active: tab === 'maintenance' }"
-        @click="tab = 'maintenance'"
+        :aria-selected="tab === 'custom'"
+        :class="{ active: tab === 'custom' }"
+        @click="tab = 'custom'"
       >
-        维护教程
+        自定义教程
       </button>
     </div>
 
-    <section v-for="s in tab === 'usage' ? usage : maintenance" :key="s.title" class="sec">
+    <section v-for="s in tab === 'usage' ? usage : custom" :key="s.title" class="sec">
       <h2>{{ s.title }}</h2>
       <p v-if="s.intro" class="intro">{{ s.intro }}</p>
       <ol class="steps">

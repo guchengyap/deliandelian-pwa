@@ -51,9 +51,9 @@ const saving = ref(false)
 /** 载入时就存在的 opfs 文件，删除后需等保存再真正删；取消则保留。 */
 const originalIds = new Set<string>()
 const deletedIds = new Set<string>()
-/** 云端文件上传状态（维护页行内反馈）：uploading → done/error。 */
+/** 云端文件上传状态（自定义模式页行内反馈）：uploading → done/error。 */
 const uploadStates = reactive<Record<string, 'uploading' | 'done' | 'error'>>({})
-/** 本会话新上传的云端文件（取消维护时需清理）；保存后移出。 */
+/** 本会话新上传的云端文件（取消自定义时需清理）；保存后移出。 */
 const newCloudIds = new Set<string>()
 /** 保存成功后才真正从云端删除的旧文件（取消可恢复）。 */
 const deletedCloudIds = new Set<string>()
@@ -188,7 +188,7 @@ function deleteItem(group: DraftGroup, id: string) {
 
 function discardFile(file: PracticeFile) {
   if (file.cloud_id) {
-    // 云端文件：本会话新上传的立即删；原有文件等保存成功再删，取消维护可恢复。
+    // 云端文件：本会话新上传的立即删；原有文件等保存成功再删，取消自定义可恢复。
     if (newCloudIds.has(file.cloud_id)) void deleteCloudFileQuiet(file.cloud_id)
     else deletedCloudIds.add(file.cloud_id)
   } else if (file.id.startsWith('u-')) void deleteOpfsFile(file.id)
@@ -486,7 +486,7 @@ async function save() {
       await db.level1.bulkAdd(l1rows)
       await db.level2.bulkAdd(l2rows)
     })
-    // 云端：先完成空间同步，再清理已删除的云端文件；任一步失败则留在维护模式重试。
+    // 云端：先完成空间同步，再清理已删除的云端文件；任一步失败则留在自定义模式重试。
     if (canWriteCloud()) {
       await saveSpace({ level1: l1rows, level2: l2rows })
       for (const cid of deletedCloudIds) await deleteCloudFileQuiet(cid)
@@ -513,7 +513,7 @@ async function save() {
   <div class="edit">
     <header class="bar">
       <button type="button" class="back" @click="emit('close')">‹ 返回</button>
-      <h1>维护模式</h1>
+      <h1>自定义模式</h1>
     </header>
 
     <div class="toolbar">
@@ -607,7 +607,7 @@ async function save() {
       <footer class="footer">
         <button type="button" class="ghost" @click="emit('close')">取消</button>
         <button type="button" class="primary" :disabled="saving" @click="save">
-          {{ saving ? '保存中…' : '保存并退出维护' }}
+          {{ saving ? '保存中…' : '保存并退出' }}
         </button>
       </footer>
 

@@ -4,7 +4,7 @@
  * 为什么不能直接调 crypto.randomUUID()：
  * 它只在「安全上下文」（HTTPS / localhost）暴露。手机经局域网 HTTP 访问电脑
  * （如 http://192.168.31.205:3456）时该 API 不存在，首次打卡生成 record_id、
- * 维护模式新增练习项目/分组/上传文件生成 id 时都会抛
+ * 自定义模式新增练习项目/分组/上传文件生成 id 时都会抛
  * "crypto.randomUUID is not a function"，表现为打卡失败、无法新增内容。
  *
  * 兜底链：原生 randomUUID → getRandomValues 手写 RFC 4122 v4（getRandomValues
