@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { adminResetUserPassword, auth, logout, refreshUsage } from '../lib/auth'
-import { CLOUD_API_BASE, FEEDBACK_EMAIL, GITHUB_REPO_URL, STORAGE_LIMIT } from '../config'
+import { CLOUD_API_BASE, FEEDBACK_EMAIL, STORAGE_LIMIT } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
 import { exportJsonBackup } from '../lib/backup'
 import { currentTheme, setTheme, type ThemeName } from '../lib/theme'
@@ -185,10 +185,6 @@ async function confirmAdminReset() {
       <template v-if="activeInfo === 'about'">
         <p class="block-text">支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。</p>
         <p class="block-text muted">无广告，免费极简应用。</p>
-        <p class="block-text">
-          开源仓库：
-          <a class="block-link" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">{{ GITHUB_REPO_URL }} ↗</a>
-        </p>
       </template>
 
       <!-- 关于作者 -->
