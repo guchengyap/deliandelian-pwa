@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { auth, logout, refreshUsage } from '../lib/auth'
+import { adminResetUserPassword, auth, logout, refreshUsage } from '../lib/auth'
 import { CLOUD_API_BASE, FEEDBACK_EMAIL, GITHUB_REPO_URL, STORAGE_LIMIT } from '../config'
 import { cloudAvailable } from '../lib/cloudSpace'
 import { exportJsonBackup } from '../lib/backup'
@@ -106,6 +106,52 @@ async function copyEmail() {
 
 // ── 显示辅助 ──
 const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_URL}favicon.svg`)
+
+// ── 管理员工具：协助重置用户密码（仅 admin 可见）──
+const isAdmin = computed(() => auth.user?.role === 'admin')
+const adminIdentifier = ref('')
+const adminNewPassword = ref('')
+const adminBusy = ref(false)
+const adminMsg = ref('')
+const adminErr = ref(false)
+const showAdminConfirm = ref(false)
+
+function openAdminResetConfirm() {
+  adminMsg.value = ''
+  adminErr.value = false
+  const id = adminIdentifier.value.trim()
+  if (!id) {
+    adminMsg.value = '请输入用户标识（用户名 / 邮箱 / 手机号）'
+    adminErr.value = true
+    return
+  }
+  if (adminNewPassword.value.length < 6) {
+    adminMsg.value = '临时新密码至少 6 位'
+    adminErr.value = true
+    return
+  }
+  showAdminConfirm.value = true
+}
+
+async function confirmAdminReset() {
+  if (adminBusy.value) return
+  showAdminConfirm.value = false
+  adminBusy.value = true
+  adminMsg.value = ''
+  adminErr.value = false
+  try {
+    const r = await adminResetUserPassword(adminIdentifier.value.trim(), adminNewPassword.value)
+    adminMsg.value = `已为用户 ${r.username} 重置密码，请通知其登录后及时修改`
+    adminErr.value = false
+    adminIdentifier.value = ''
+    adminNewPassword.value = ''
+  } catch (e) {
+    adminMsg.value = e instanceof Error ? e.message : String(e)
+    adminErr.value = true
+  } finally {
+    adminBusy.value = false
+  }
+}
 </script>
 
 <template>
@@ -218,6 +264,26 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
 
     <p class="hint">{{ CLOUD_API_BASE ? '打卡状态与个人数据随账户云端同步（多端一致）；练习内容与文件保存在你的云端空间。' : '云端服务未配置，当前为纯本地模式：所有数据仅保存在本机。' }}</p>
 
+    <!-- 管理员工具：协助重置用户密码（仅 admin 可见） -->
+    <section v-if="isAdmin" class="block admin-block">
+      <h2>管理员工具：协助重置用户密码</h2>
+      <p class="block-text muted small">
+        用户遗忘邮箱 / 手机号联系你时，输入其用户名、注册邮箱或手机号任一，再设置临时新密码即可代为重置。
+      </p>
+      <label class="admin-field">
+        <span>用户标识（用户名 / 注册邮箱 / 手机号）</span>
+        <input v-model="adminIdentifier" type="text" autocomplete="off" placeholder="任填其一即可定位用户" />
+      </label>
+      <label class="admin-field">
+        <span>临时新密码（至少 6 位）</span>
+        <input v-model="adminNewPassword" type="text" autocomplete="off" placeholder="为其设置的临时密码" />
+      </label>
+      <button type="button" class="admin-submit" :disabled="adminBusy" @click="openAdminResetConfirm">
+        {{ adminBusy ? '重置中…' : '确认重置密码' }}
+      </button>
+      <p v-if="adminMsg" class="admin-msg" :class="{ err: adminErr }" role="status">{{ adminMsg }}</p>
+    </section>
+
     <!-- 板块一：关于 -->
     <section class="block">
       <h2>关于</h2>
@@ -281,6 +347,22 @@ const avatarSrc = computed(() => auth.user?.avatar || `${import.meta.env.BASE_UR
             <img :src="donateImg" alt="收款码大图" />
             <button type="button" class="donate-close" @click="donateImg = null">关闭</button>
           </figure>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 管理员重置密码：二次确认弹窗 -->
+    <Teleport to="body">
+      <Transition name="dlg">
+        <div v-if="showAdminConfirm" class="dlg-mask" @click.self="showAdminConfirm = false">
+          <div class="dlg" role="dialog" aria-modal="true" aria-label="确认重置用户密码">
+            <p class="dlg-title">协助重置用户密码</p>
+            <p class="dlg-text">确定要为「{{ adminIdentifier.trim() }}」重置密码吗？重置后其旧密码与登录状态将立即失效。</p>
+            <div class="dlg-actions">
+              <button type="button" class="dlg-btn ghost" @click="showAdminConfirm = false">取消</button>
+              <button type="button" class="dlg-btn primary" @click="confirmAdminReset">确定重置</button>
+            </div>
+          </div>
         </div>
       </Transition>
     </Teleport>
@@ -735,5 +817,141 @@ dd.ok {
 .donate-enter-from .donate-big,
 .donate-leave-to .donate-big {
   transform: scale(0.9);
+}
+/* ── 管理员工具：协助重置用户密码 ── */
+.admin-block {
+  border-color: var(--accent-bg);
+}
+.admin-field {
+  display: block;
+  margin: 10px 0;
+}
+.admin-field span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.admin-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  border-radius: var(--r-s);
+  background: var(--fill);
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.admin-submit {
+  margin-top: 6px;
+  width: 100%;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  padding: 11px 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+}
+.admin-submit:active {
+  transform: scale(0.98);
+}
+.admin-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.admin-msg {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--accent);
+}
+.admin-msg.err {
+  color: #e0300e;
+}
+/* ── 二次确认弹窗（复用全局 dlg 风格）── */
+.dlg-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.3);
+}
+.dlg {
+  width: min(320px, 100%);
+  border-radius: 22px;
+  padding: 22px 20px 16px;
+  text-align: center;
+  background: var(--card-glass);
+  -webkit-backdrop-filter: blur(40px) saturate(160%);
+  backdrop-filter: blur(40px) saturate(160%);
+  border: 1px solid var(--card-glass-border);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+    0 24px 64px rgba(0, 0, 0, 0.22);
+}
+.dlg-title {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+}
+.dlg-text {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-all;
+}
+.dlg-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+.dlg-btn {
+  flex: 1 1 0;
+  border: none;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 0;
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+.dlg-btn:active {
+  transform: scale(0.97);
+}
+.dlg-btn.ghost {
+  background: var(--fill);
+  color: var(--text);
+}
+.dlg-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 6px 18px var(--accent-bg);
+}
+.dlg-enter-active,
+.dlg-leave-active {
+  transition: opacity 0.22s ease;
+}
+.dlg-enter-active .dlg,
+.dlg-leave-active .dlg {
+  transition: transform 0.26s var(--ease), opacity 0.2s ease;
+}
+.dlg-enter-from,
+.dlg-leave-to {
+  opacity: 0;
+}
+.dlg-enter-from .dlg,
+.dlg-leave-to .dlg {
+  transform: translateY(12px) scale(0.96);
+  opacity: 0;
 }
 </style>

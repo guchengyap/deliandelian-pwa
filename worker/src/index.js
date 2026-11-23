@@ -6,6 +6,7 @@
  *   POST /api/register          注册 {username,email,password,phone,avatar?}
  *   POST /api/login             登录 {account,password}（用户名/邮箱/手机号任一）
  *   POST /api/auth/reset-password  忘记密码自助重置 {username,email,phone,password}（禁止重置 admin）
+ *   POST /api/admin/reset-user-password  管理员协助重置用户密码 {identifier,newPassword}（仅 admin；递增 token_version）
  *   GET  /api/me                当前用户 + 已用容量（鉴权）
  *   GET  /api/space/admin       默认模板空间（公开；游客与初始模板来源）
  *   PUT  /api/space/admin       保存默认模板空间（仅 admin）
@@ -124,12 +125,20 @@ async function verifyToken(token, secret) {
   return payload
 }
 
-/** 从 Authorization: Bearer 取 token 并校验，返回 {uid, role}。 */
+/** 从 Authorization: Bearer 取 token 并校验，返回 {uid, role}（role 取自数据库最新值）。 */
 async function requireAuth(request, env) {
   const raw = request.headers.get('Authorization') ?? ''
   const token = raw.startsWith('Bearer ') ? raw.slice(7) : ''
   if (!token) fail(401, '请先登录')
-  return verifyToken(token, env.JWT_SECRET)
+  const payload = await verifyToken(token, env.JWT_SECRET)
+  const user = await getUserById(env, payload.uid)
+  if (!user) fail(401, '用户不存在')
+  // token_version 校验：密码被重置（自助或管理员协助）后旧 JWT 立即失效。
+  // 历史 token 无 tv 字段视作 0，与旧库默认值一致，避免升级时误踢所有已登录用户。
+  const tokenTv = typeof payload.tv === 'number' ? payload.tv : 0
+  const curTv = typeof user.token_version === 'number' ? user.token_version : 0
+  if (tokenTv !== curTv) fail(401, '登录已失效，请重新登录')
+  return { uid: payload.uid, role: user.role }
 }
 
 /** PBKDF2-SHA256 加盐哈希，返回 "salt.hex:hash.hex"。 */
@@ -173,6 +182,14 @@ function validateSpaceData(data) {
     fail(400, '空间数据格式不正确')
   }
   if (JSON.stringify(data).length > 2 * 1024 * 1024) fail(413, '空间数据过大（上限 2MB）')
+}
+
+/** 用户名脱敏：保留首尾字符，中间用 * 填充（如「张三」→「张*」，「小明同学」→「小**学」）。 */
+function maskUsername(name) {
+  const s = String(name ?? '')
+  if (s.length <= 1) return s
+  if (s.length === 2) return s[0] + '*'
+  return s[0] + '*'.repeat(s.length - 2) + s[s.length - 1]
 }
 
 // ── D1 助手 ──────────────────────────────────────────────
@@ -309,7 +326,7 @@ async function route(request, env, url) {
       if (String(e).includes('UNIQUE')) fail(409, '用户名 / 邮箱 / 手机号已被注册')
       throw e
     }
-    const token = await signToken({ uid: id, role, exp: now() + 30 * 864e5 }, env.JWT_SECRET)
+    const token = await signToken({ uid: id, role, tv: 0, exp: now() + 30 * 864e5 }, env.JWT_SECRET)
     return json({ token, user: publicUser(await getUserById(env, id)) }, 200, cors)
   }
 
@@ -323,7 +340,7 @@ async function route(request, env, url) {
       .bind(account)
       .first()
     if (!user || !(await verifyPassword(body.password, user.pass_hash))) fail(401, '账号或密码不正确')
-    const token = await signToken({ uid: user.id, role: user.role, exp: now() + 30 * 864e5 }, env.JWT_SECRET)
+    const token = await signToken({ uid: user.id, role: user.role, tv: user.token_version ?? 0, exp: now() + 30 * 864e5 }, env.JWT_SECRET)
     return json({ token, user: publicUser(user) }, 200, cors)
   }
 
@@ -356,11 +373,49 @@ async function route(request, env, url) {
       fail(403, '管理员账号不支持自助重置密码，请联系管理员或到控制台重置')
     }
     const passHash = await hashPassword(password)
+    const nextTv = (user.token_version ?? 0) + 1
     await env.DB
-      .prepare('UPDATE users SET pass_hash = ? WHERE id = ?')
-      .bind(passHash, user.id)
+      .prepare('UPDATE users SET pass_hash = ?, token_version = ? WHERE id = ?')
+      .bind(passHash, nextTv, user.id)
       .run()
     return json({ ok: true }, 200, cors)
+  }
+
+  // ── 管理员协助重置用户密码 ──
+  // 场景：用户遗忘邮箱/手机号无法自助找回，联系作者（admin）代为其重置为临时密码。
+  // 严格鉴权：仅 role==='admin' 可调用；禁止重置 admin 自身；递增 token_version 踢下线。
+  if (path === '/api/admin/reset-user-password' && method === 'POST') {
+    const auth = await requireAuth(request, env)
+    if (auth.role !== 'admin') fail(403, '仅管理员可执行此操作')
+    const body = await request.json().catch(() => null)
+    if (!body) fail(400, '请求体不是合法 JSON')
+    const identifier = typeof body.identifier === 'string' ? body.identifier.trim() : ''
+    const newPassword = typeof body.newPassword === 'string' ? body.newPassword : ''
+    if (!identifier) fail(400, '请输入用户标识（用户名 / 邮箱 / 手机号）')
+    if (newPassword.length < 6) fail(400, '新密码至少 6 位')
+    // 用户名 / 邮箱 / 手机号任一匹配；三者全局唯一，但同一串可能命中不同用户的
+    // 不同字段（如某用户名恰为另一人的邮箱），故取全部结果做歧义判定。
+    const { results } = await env.DB
+      .prepare('SELECT * FROM users WHERE username = ?1 COLLATE NOCASE OR email = ?1 COLLATE NOCASE OR phone = ?1')
+      .bind(identifier)
+      .all()
+    if (!results || results.length === 0) {
+      fail(404, '未找到匹配的用户，请核对用户名 / 邮箱 / 手机号')
+    }
+    if (results.length > 1) {
+      fail(409, '该标识匹配到多个账号，请改用更精确的用户名 / 邮箱 / 手机号')
+    }
+    const target = results[0]
+    if (target.role === 'admin') {
+      fail(403, '禁止通过此接口修改管理员账号密码')
+    }
+    const passHash = await hashPassword(newPassword)
+    const nextTv = (target.token_version ?? 0) + 1
+    await env.DB
+      .prepare('UPDATE users SET pass_hash = ?, token_version = ? WHERE id = ?')
+      .bind(passHash, nextTv, target.id)
+      .run()
+    return json({ ok: true, username: maskUsername(target.username) }, 200, cors)
   }
 
   // ── 当前用户 ──

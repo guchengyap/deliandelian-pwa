@@ -62,13 +62,21 @@ function mockD1() {
           for (const k of [username, email, phone]) {
             if (usersByName.has(String(k).toLowerCase())) throw new Error('UNIQUE constraint failed')
           }
-          users.set(id, { id, username, email, phone, pass_hash: api._p[4], avatar: api._p[5], role: api._p[6], created_at: api._p[7] })
+          users.set(id, { id, username, email, phone, pass_hash: api._p[4], avatar: api._p[5], role: api._p[6], token_version: 0, created_at: api._p[7] })
           for (const k of [username, email, phone]) usersByName.set(String(k).toLowerCase(), id)
           return { success: true }
         }
         if (like(sql, 'update users')) {
-          const u = users.get(api._p[1])
-          if (u) u.pass_hash = api._p[0]
+          if (like(sql, 'token_version')) {
+            const u = users.get(api._p[2])
+            if (u) {
+              u.pass_hash = api._p[0]
+              u.token_version = api._p[1]
+            }
+          } else {
+            const u = users.get(api._p[1])
+            if (u) u.pass_hash = api._p[0]
+          }
           return { success: true }
         }
         if (like(sql, 'into user_spaces')) {
@@ -98,6 +106,13 @@ function mockD1() {
         throw new Error('run: ' + sql)
       },
       async all() {
+        if (like(sql, 'from users')) {
+          const k = String(api._p[0]).toLowerCase()
+          const matches = [...users.values()].filter(
+            (u) => u.username.toLowerCase() === k || u.email.toLowerCase() === k || u.phone === k,
+          )
+          return { results: matches }
+        }
         if (like(sql, 'from user_records')) {
           const rows = [...records.values()]
             .filter((r) => r.user_id === api._p[0])

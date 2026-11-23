@@ -67,14 +67,23 @@ function mockD1() {
             const k = String(key).toLowerCase()
             if (usersByName.has(k)) throw new Error('UNIQUE constraint failed')
           }
-          users.set(id, { id, username, email, phone, pass_hash: api._p[4], avatar: api._p[5], role: api._p[6], created_at: api._p[7] })
+          users.set(id, { id, username, email, phone, pass_hash: api._p[4], avatar: api._p[5], role: api._p[6], token_version: 0, created_at: api._p[7] })
           for (const key of [username, email, phone]) usersByName.set(String(key).toLowerCase(), id)
           return { success: true }
         }
         if (like(sql, 'update users')) {
-          // UPDATE users SET pass_hash = ? WHERE id = ?
-          const u = users.get(api._p[1])
-          if (u) u.pass_hash = api._p[0]
+          if (like(sql, 'token_version')) {
+            // UPDATE users SET pass_hash = ?, token_version = ? WHERE id = ?
+            const u = users.get(api._p[2])
+            if (u) {
+              u.pass_hash = api._p[0]
+              u.token_version = api._p[1]
+            }
+          } else {
+            // UPDATE users SET pass_hash = ? WHERE id = ?
+            const u = users.get(api._p[1])
+            if (u) u.pass_hash = api._p[0]
+          }
           return { success: true }
         }
         if (like(sql, 'into user_spaces')) {
@@ -105,6 +114,14 @@ function mockD1() {
         throw new Error('mockD1 未实现的 run: ' + sql)
       },
       async all() {
+        if (like(sql, 'from users')) {
+          // 管理员重置密码定位查询：用户名 / 邮箱 / 手机号任一，做歧义判定
+          const k = String(api._p[0]).toLowerCase()
+          const matches = [...users.values()].filter(
+            (u) => u.username.toLowerCase() === k || u.email.toLowerCase() === k || u.phone === k,
+          )
+          return { results: matches }
+        }
         if (like(sql, 'from user_files where user_id')) {
           const rows = [...files.values()]
             .filter((f) => f.user_id === api._p[0])
@@ -526,6 +543,70 @@ console.log('T17 忘记密码：多要素核验自助重置')
   check('禁止重置 admin 403', adminReset.status === 403, JSON.stringify(adminReset.body))
   const adminStill = await json('/api/login', { account: 'admin', password: 'secret66' })
   check('admin 原密码仍有效', adminStill.status === 200)
+}
+
+console.log('T18 管理员协助重置用户密码')
+{
+  // 注册一个新用户作为重置目标
+  const reg3 = await json('/api/register', {
+    username: '小刚',
+    email: 'xg@test.com',
+    phone: '13800000005',
+    password: 'oldpass1',
+  })
+  check('注册目标用户 200', reg3.status === 200, JSON.stringify(reg3.body))
+  const targetToken = reg3.body?.token
+  const targetId = reg3.body?.user?.id
+
+  // 未登录 → 401
+  const noAuth = await json('/api/admin/reset-user-password', { identifier: '小刚', newPassword: 'newpass1' })
+  check('未登录 401', noAuth.status === 401)
+
+  // 普通用户 → 403（T17 已重置小明密码，重新登录取有效 token）
+  const u2login = await json('/api/login', { account: '小明', password: 'newpass99' })
+  check('普通用户登录成功', u2login.status === 200, JSON.stringify(u2login.body))
+  const forbidden = await json('/api/admin/reset-user-password', { identifier: '小刚', newPassword: 'newpass1' }, u2login.body?.token)
+  check('普通用户调用 403', forbidden.status === 403, JSON.stringify(forbidden.body))
+
+  // 缺 identifier
+  const noIdent = await json('/api/admin/reset-user-password', { newPassword: 'newpass1' }, adminToken)
+  check('缺 identifier 400', noIdent.status === 400)
+
+  // 新密码过短
+  const shortPwd = await json('/api/admin/reset-user-password', { identifier: '小刚', newPassword: '123' }, adminToken)
+  check('新密码过短 400', shortPwd.status === 400)
+
+  // 定位不到
+  const notFound = await json('/api/admin/reset-user-password', { identifier: '不存在的人', newPassword: 'newpass1' }, adminToken)
+  check('定位不到 404', notFound.status === 404, JSON.stringify(notFound.body))
+
+  // 歧义：注入一个 username 与目标邮箱相同的用户，同一标识命中两条 → 409
+  env.DB._users.set('dup-user', {
+    id: 'dup-user', username: 'xg@test.com', email: 'dup@test.com', phone: '13911111111',
+    pass_hash: 'x', avatar: null, role: 'user', token_version: 0, created_at: 1,
+  })
+  const ambiguous = await json('/api/admin/reset-user-password', { identifier: 'xg@test.com', newPassword: 'newpass1' }, adminToken)
+  check('歧义匹配 409', ambiguous.status === 409, JSON.stringify(ambiguous.body))
+  env.DB._users.delete('dup-user')
+
+  // 禁止重置 admin
+  const resetAdmin = await json('/api/admin/reset-user-password', { identifier: 'admin', newPassword: 'hackadmin2' }, adminToken)
+  check('禁止重置 admin 403', resetAdmin.status === 403, JSON.stringify(resetAdmin.body))
+
+  // 成功重置（用邮箱定位）
+  const ok = await json('/api/admin/reset-user-password', { identifier: 'xg@test.com', newPassword: 'newpass1' }, adminToken)
+  check('成功重置 200 + 返回脱敏用户名', ok.status === 200 && typeof ok.body?.username === 'string', JSON.stringify(ok.body))
+  check('脱敏含 * 且非明文', ok.body?.username?.includes('*') && ok.body?.username !== '小刚', ok.body?.username)
+
+  // 旧密码失效、新密码可登录
+  const oldLogin = await json('/api/login', { account: '小刚', password: 'oldpass1' })
+  check('旧密码失效 401', oldLogin.status === 401)
+  const newLogin = await json('/api/login', { account: '小刚', password: 'newpass1' })
+  check('新密码登录成功', newLogin.status === 200 && newLogin.body?.user?.id === targetId, JSON.stringify(newLogin.body))
+
+  // 目标用户旧 token 失效（token_version 递增）
+  const staleToken = await call('/api/me', { headers: { Authorization: `Bearer ${targetToken}` } })
+  check('目标旧 token 失效 401', staleToken.status === 401, String(staleToken.status))
 }
 
 console.log(`\n结果：${pass} 通过 / ${failed} 失败`)

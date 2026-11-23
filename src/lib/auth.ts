@@ -201,6 +201,25 @@ export async function resetPassword(fields: ResetPasswordFields): Promise<void> 
   })
 }
 
+export interface AdminResetResult {
+  ok: boolean
+  /** 后端返回的被重置用户「脱敏用户名」（如「小*」）。 */
+  username: string
+}
+
+/**
+ * 管理员工具：协助重置用户密码（用户遗忘邮箱/手机号时，作者代为重置为临时密码）。
+ * identifier 支持用户名 / 注册邮箱 / 手机号任一；仅 role==='admin' 可调用。
+ */
+export async function adminResetUserPassword(identifier: string, newPassword: string): Promise<AdminResetResult> {
+  requireCloud()
+  return await api<AdminResetResult>('/api/admin/reset-user-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ identifier, newPassword }),
+  })
+}
+
 /**
  * 退出登录：清凭证后整页刷新。
  * 会话缓存清理点：auth_token / auth_user 从 localStorage 移除；内存态
