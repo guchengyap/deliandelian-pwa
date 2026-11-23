@@ -144,7 +144,7 @@ const custom: Section[] = [
   <div class="help">
     <header class="bar">
       <button type="button" class="back" @click="emit('back')">‹ 返回</button>
-      <h1>使用与自定义教程</h1>
+      <h1>使用和自定义教程</h1>
     </header>
 
     <div class="tabs" role="tablist">

@@ -80,10 +80,28 @@ function onFilesChanged(payload: { deletedIds: string[] }) {
   window.setTimeout(() => (cloudNote.value = ''), 2600)
 }
 
-// ── 打赏码：点击放大查看 ──
+// ── 信息二级页：关于 / 关于作者 / 投诉与建议 / 鸣谢 ──
+type InfoKey = 'about' | 'author' | 'feedback' | 'thanks'
+const activeInfo = ref<InfoKey | null>(null)
+const infoTitle = computed(() => {
+  switch (activeInfo.value) {
+    case 'about':
+      return '关于'
+    case 'author':
+      return '关于作者'
+    case 'feedback':
+      return '投诉与建议'
+    case 'thanks':
+      return '鸣谢'
+    default:
+      return ''
+  }
+})
+
+// ── 支付宝收款码：点击放大查看 ──
 const donateImg = ref<string | null>(null)
-function openDonate(name: 'wechat' | 'alipay') {
-  donateImg.value = `${import.meta.env.BASE_URL}donate-${name}.png`
+function openDonate() {
+  donateImg.value = `${import.meta.env.BASE_URL}donate-alipay.png`
 }
 
 // ── 反馈邮箱：一键复制 ──
@@ -155,7 +173,69 @@ async function confirmAdminReset() {
 </script>
 
 <template>
-  <div class="settings">
+  <!-- 信息二级页：关于 / 关于作者 / 投诉与建议 / 鸣谢 -->
+  <div v-if="activeInfo" class="settings">
+    <header class="bar">
+      <button type="button" class="back" @click="activeInfo = null">‹ 返回</button>
+      <h1>{{ infoTitle }}</h1>
+    </header>
+
+    <section class="info-detail">
+      <!-- 关于 -->
+      <template v-if="activeInfo === 'about'">
+        <p class="block-text">支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。</p>
+        <p class="block-text muted">项目已完全免费开源。</p>
+        <p class="block-text">
+          开源仓库：
+          <a class="block-link" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">{{ GITHUB_REPO_URL }} ↗</a>
+        </p>
+      </template>
+
+      <!-- 关于作者 -->
+      <template v-else-if="activeInfo === 'author'">
+        <p class="block-text">VINCE DWAN，业余入门唱歌爱好者，不务正业的可怜财务人，希望可以晚饭加鸡腿。</p>
+        <button type="button" class="donate-card single" @click="openDonate">
+          <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
+          <span>支付宝扫一扫，加个鸡腿</span>
+        </button>
+        <p class="biz-note">
+          接中小企业财务分析；接个人/银企大额/小额电子过桥等，费用低廉（仅限地区：粤）；接工作机会（过硬跨境全盘财务能力）以上可联系
+          <a class="biz-mail" :href="`mailto:${FEEDBACK_EMAIL}`">{{ FEEDBACK_EMAIL }}</a>
+          <button type="button" class="biz-copy" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制' }}</button>
+        </p>
+      </template>
+
+      <!-- 投诉与建议 -->
+      <template v-else-if="activeInfo === 'feedback'">
+        <p class="block-text">不接受投诉~~意见与反馈，以及找不回密码请联系邮箱 {{ FEEDBACK_EMAIL }}（加急可以打赏查看邮箱更快喔）</p>
+        <div class="feedback-row">
+          <span class="feedback-email">{{ FEEDBACK_EMAIL }}</span>
+          <button type="button" class="mini" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制邮箱' }}</button>
+          <a class="mini-link" :href="`mailto:${FEEDBACK_EMAIL}`">发邮件</a>
+        </div>
+      </template>
+
+      <!-- 鸣谢 -->
+      <template v-else>
+        <p class="block-text">感谢 WorkBuddy 及各大智能体（Hy4 flash / DeepSeek-v4.1-Flash / DeepSeek-v4-Pro / GLM-5.3 / GLM-5.3-Flash / GLM-5.3-FlashX）及贡献提示词的网页版 AI（腾讯元宝 / DeepSeek / Google Gemini）的鼎力支持，以及 GitHub 提供的前端服务，Cloudflare 提供的免费后端数据库，DigitalPlat 提供注册的免费域名。</p>
+      </template>
+    </section>
+
+    <!-- 支付宝收款码放大预览 -->
+    <Teleport to="body">
+      <Transition name="donate">
+        <div v-if="donateImg" class="donate-mask" @click.self="donateImg = null">
+          <figure class="donate-big">
+            <img :src="donateImg" alt="收款码大图" />
+            <button type="button" class="donate-close" @click="donateImg = null">关闭</button>
+          </figure>
+        </div>
+      </Transition>
+    </Teleport>
+  </div>
+
+  <!-- 主设置页 -->
+  <div v-else class="settings">
     <header class="bar">
       <button type="button" class="back" @click="emit('back')">‹ 返回</button>
       <h1>设置</h1>
@@ -284,72 +364,29 @@ async function confirmAdminReset() {
       <p v-if="adminMsg" class="admin-msg" :class="{ err: adminErr }" role="status">{{ adminMsg }}</p>
     </section>
 
-    <!-- 板块一：关于 -->
-    <section class="block">
-      <h2>关于</h2>
-      <p class="block-text">
-        支持完全自定义练声项目与上传练声曲，支持实时音调检测、跟练打卡与多端云端同步。
-      </p>
-      <p class="block-text muted">项目已完全免费开源。</p>
-      <a class="block-link" :href="GITHUB_REPO_URL" target="_blank" rel="noopener noreferrer">
-        开源仓库 {{ GITHUB_REPO_URL }} ↗
-      </a>
-      <p class="block-text muted small">
-        鸣谢：WorkBuddy 及各大智能体（Hy4 flash / DeepSeek-v4.1-Flash / DeepSeek-v4-Pro / GLM-5.3 /
-        GLM-5.3-Flash / GLM-5.3-FlashX）及贡献提示词的网页版 AI（腾讯元宝 / DeepSeek / Google Gemini）的鼎力支持，
-        以及 GitHub 提供的前端服务、Cloudflare 提供的免费后端数据库、DigitalPlat 提供的免费域名。
-      </p>
-    </section>
-
-    <!-- 板块二：使用与自定义教程 -->
-    <section class="block">
-      <button type="button" class="block-entry" @click="emit('help')">
-        <span>
-          <strong>使用与自定义教程</strong>
-          <small>跟练打卡、自定义模式、容量清理、主屏幕安装</small>
-        </span>
-        <span aria-hidden="true" class="chevron">›</span>
+    <!-- 信息板块：5 项纯标题 + 箭头，点击进入二级页 -->
+    <section class="block info-list">
+      <button type="button" class="info-row" @click="activeInfo = 'about'">
+        <span>关于</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="info-row" @click="emit('help')">
+        <span>使用和自定义教程</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="info-row" @click="activeInfo = 'author'">
+        <span>关于作者</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="info-row" @click="activeInfo = 'feedback'">
+        <span>投诉与建议</span>
+        <span class="chevron" aria-hidden="true">›</span>
+      </button>
+      <button type="button" class="info-row" @click="activeInfo = 'thanks'">
+        <span>鸣谢</span>
+        <span class="chevron" aria-hidden="true">›</span>
       </button>
     </section>
-
-    <!-- 板块三：作者与打赏 -->
-    <section class="block">
-      <h2>作者与打赏</h2>
-      <p class="block-text">作者：VINCE DWAN，作者很神秘，只留下了神秘打赏二维码，希望顿顿晚饭加鸡腿。</p>
-      <div class="donate-row">
-        <button type="button" class="donate-card" @click="openDonate('wechat')">
-          <img :src="`${base}donate-wechat.png`" alt="微信收款码" />
-          <span>微信</span>
-        </button>
-        <button type="button" class="donate-card" @click="openDonate('alipay')">
-          <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
-          <span>支付宝</span>
-        </button>
-      </div>
-      <p class="block-text muted small">点击收款码可放大查看。</p>
-    </section>
-
-    <!-- 板块四：意见反馈 -->
-    <section class="block">
-      <h2>意见反馈</h2>
-      <div class="feedback-row">
-        <span class="feedback-email">{{ FEEDBACK_EMAIL }}</span>
-        <button type="button" class="mini" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制邮箱' }}</button>
-        <a class="mini-link" :href="`mailto:${FEEDBACK_EMAIL}`">发邮件</a>
-      </div>
-    </section>
-
-    <!-- 打赏码放大预览 -->
-    <Teleport to="body">
-      <Transition name="donate">
-        <div v-if="donateImg" class="donate-mask" @click.self="donateImg = null">
-          <figure class="donate-big">
-            <img :src="donateImg" alt="收款码大图" />
-            <button type="button" class="donate-close" @click="donateImg = null">关闭</button>
-          </figure>
-        </div>
-      </Transition>
-    </Teleport>
 
     <!-- 管理员重置密码：二次确认弹窗 -->
     <Teleport to="body">
@@ -641,7 +678,7 @@ dd.ok {
 .swatch.active .swatch-name {
   color: var(--text);
 }
-/* ── 设置页四大信息板块：关于 / 教程 / 打赏 / 反馈 ── */
+/* ── 设置页信息板块：5 项纯标题行，点击进二级页 ── */
 .block {
   margin-top: 16px;
   background: var(--card-glass);
@@ -683,31 +720,37 @@ dd.ok {
 .block-link:hover {
   text-decoration: underline;
 }
-.block-entry {
+.info-list {
+  padding: 6px 16px;
+}
+.info-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  padding: 0;
+  padding: 13px 0;
   border: none;
   background: none;
   color: var(--text);
   font-family: inherit;
+  font-size: 14px;
   cursor: pointer;
   text-align: left;
+  border-bottom: 1px solid var(--line);
 }
-.block-entry strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
+.info-row:last-child {
+  border-bottom: none;
 }
-.block-entry small {
-  display: block;
-  margin-top: 3px;
-  font-size: 12px;
-  color: var(--muted);
+.info-detail {
+  background: var(--card-glass);
+  border: 1px solid var(--card-glass-border);
+  -webkit-backdrop-filter: var(--card-blur);
+  backdrop-filter: var(--card-blur);
+  box-shadow: var(--card-glass-shadow);
+  transition: background 0.5s ease, box-shadow 0.5s ease, border-color 0.5s ease;
+  border-radius: var(--r-m);
+  padding: 16px;
 }
 .chevron {
   color: var(--accent);
@@ -715,11 +758,6 @@ dd.ok {
   flex: 0 0 auto;
 }
 /* 打赏码 */
-.donate-row {
-  display: flex;
-  gap: 14px;
-  margin: 10px 0 4px;
-}
 .donate-card {
   flex: 1 1 0;
   display: flex;
@@ -742,6 +780,41 @@ dd.ok {
 .donate-card span {
   font-size: 12px;
   color: var(--muted);
+}
+/* 关于作者：单卡片居中展示 */
+.donate-card.single {
+  flex: none;
+  width: 100%;
+  max-width: 220px;
+  margin: 12px auto 4px;
+}
+/* 业务合作说明：灰色小小字 */
+.biz-note {
+  margin: 14px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+  opacity: 0.85;
+}
+.biz-mail {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.biz-mail:hover {
+  text-decoration: underline;
+}
+.biz-copy {
+  margin-left: 6px;
+  border: none;
+  background: var(--fill);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
 }
 /* 意见反馈 */
 .feedback-row {
