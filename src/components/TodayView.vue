@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
-import type { PracticeTask, TaskGroup } from '../lib/tasks'
+import type { PracticeTask, SafetyCard, TaskGroup } from '../lib/tasks'
 import TaskView from './TaskView.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
+  /** 顶部「练前安全提示」卡（不参与打卡与编号），无则不渲染。 */
+  safety?: SafetyCard | null
   doneIds: Set<string>
   taskCount: number
 }>()
@@ -81,10 +83,8 @@ function hasBody(t: PracticeTask): boolean {
   )
 }
 
-/** 注意事项卡：单卡一次打卡，无「单独练」入口（内容只在当日页看）。 */
-function isNotesCard(t: PracticeTask): boolean {
-  return !!t.item.config?.notesCard
-}
+/** 练前安全提示卡：默认收起，点右上角箭头展开/收起（不参与打卡）。 */
+const safetyOpen = ref(false)
 </script>
 
 <template>
@@ -138,6 +138,51 @@ function isNotesCard(t: PracticeTask): boolean {
       >
         一键取消今日打卡
       </button>
+    </section>
+
+    <!-- 练前安全提示：独立小卡，不参与打卡与编号，默认收起 -->
+    <section v-if="safety" class="safety" :class="{ open: safetyOpen }">
+      <button
+        type="button"
+        class="safety-head"
+        :aria-expanded="safetyOpen"
+        @click="safetyOpen = !safetyOpen"
+      >
+        <svg class="safety-ico" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M12 3 2.8 19.5h18.4L12 3z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M12 10v4.4"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+          <circle cx="12" cy="17" r="1" fill="currentColor" />
+        </svg>
+        <span class="safety-title">{{ safety.title }}</span>
+        <svg class="safety-chev" viewBox="0 0 24 24" aria-hidden="true">
+          <path
+            d="M6 9l6 6 6-6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <div v-if="safetyOpen" class="safety-body">
+        <p v-for="(n, i) in safety.entries" :key="i" class="safety-entry">
+          <template v-if="n.head"><b>{{ n.head }}</b><span>：{{ n.body }}</span></template>
+          <template v-else>{{ n.body }}</template>
+        </p>
+      </div>
     </section>
 
     <section v-for="g in groups" :key="g.key" class="group">
@@ -194,7 +239,7 @@ function isNotesCard(t: PracticeTask): boolean {
               @auto-done="emit('autoDone', $event)"
             />
             <p v-if="!hasBody(t)" class="no-content">这一项没有音频或图片，照上面的说明练即可。</p>
-            <button v-if="!isNotesCard(t)" type="button" class="solo" @click="openTask(t.key)">到跟练页单独练 ›</button>
+            <button type="button" class="solo" @click="openTask(t.key)">到跟练页单独练 ›</button>
           </div>
         </article>
       </div>
@@ -379,6 +424,70 @@ function isNotesCard(t: PracticeTask): boolean {
 .uncheck-all:active {
   opacity: 0.55;
 }
+/* ── 练前安全提示卡：浅暖色独立小卡，不参与打卡 ── */
+.safety {
+  margin: -8px 0 20px;
+  border-radius: var(--r-m);
+  padding: 12px 14px;
+  background: linear-gradient(rgba(245, 158, 60, 0.1), rgba(245, 158, 60, 0.1));
+  border: 1px solid rgba(222, 138, 42, 0.22);
+}
+.safety-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+}
+.safety-ico {
+  flex: 0 0 auto;
+  width: 15px;
+  height: 15px;
+  color: #d97e2c;
+}
+.safety-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.safety-chev {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  color: var(--faint);
+  transition: transform 0.2s ease;
+}
+.safety.open .safety-chev {
+  transform: rotate(180deg);
+}
+.safety-body {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(222, 138, 42, 0.3);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.safety-entry {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.safety-entry b {
+  font-weight: 600;
+  color: var(--text);
+}
+.safety-entry span {
+  color: var(--muted);
+}
+
 .group {
   margin-bottom: 22px;
 }

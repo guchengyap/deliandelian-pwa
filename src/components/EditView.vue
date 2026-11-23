@@ -597,6 +597,13 @@ async function save() {
               </svg>
             </span>
             <input v-model="g.title" class="g-title" aria-label="一级项标题" />
+            <span
+              v-if="g.items.some((i) => i.config?.notesCard)"
+              class="safety-chip"
+              title="该板块渲染为当日页顶部「练前安全提示」卡，不参与打卡与编号"
+            >
+              顶部提示卡
+            </span>
             <div class="order-btns">
               <button
                 type="button"
@@ -992,6 +999,18 @@ async function save() {
   flex: 1;
   font-size: 16px;
   font-weight: 600;
+}
+/* 顶部提示卡标识：渲染为当日页安全卡，不参与打卡与编号 */
+.safety-chip {
+  flex: 0 0 auto;
+  font-size: 11px;
+  line-height: 1;
+  color: #b26a1b;
+  background: rgba(245, 158, 60, 0.14);
+  border: 1px solid rgba(222, 138, 42, 0.3);
+  border-radius: 999px;
+  padding: 4px 8px;
+  white-space: nowrap;
 }
 .i-title {
   flex: 1;

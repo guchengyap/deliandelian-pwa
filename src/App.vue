@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { db, seedIfEmpty, type Level1Item, type Level2Item } from './db/db'
 import { completedIdsOn, dateKey, setCompletion, toggleCompletion, uncompleteAllOn } from './db/records'
 import { stopAll } from './lib/audioSession'
-import { buildTaskGroups, flattenTasks } from './lib/tasks'
+import { buildSafetyCard, buildTaskGroups, flattenTasks, type SafetyCard } from './lib/tasks'
 import { auth, initAuth } from './lib/auth'
 import { flushPendingSync, installSyncListeners, pullRecords } from './lib/recordSync'
 import {
@@ -28,6 +28,8 @@ type Tab = 'stats' | 'today' | 'practice' | 'tuner'
 type Overlay = 'none' | 'settings' | 'help' | 'edit'
 
 const groups = ref<ReturnType<typeof buildTaskGroups>>([])
+/** 顶部「练前安全提示」卡（不参与打卡与编号），无则不渲染。 */
+const safety = ref<SafetyCard | null>(null)
 const tasks = computed(() => flattenTasks(groups.value))
 const current = ref(0)
 const tab = ref<Tab>('stats')
@@ -243,6 +245,7 @@ async function reloadCatalog() {
     db.level1.orderBy('order').toArray(),
     db.level2.orderBy('order').toArray(),
   ])
+  safety.value = buildSafetyCard(l1, l2)
   groups.value = buildTaskGroups(l1, l2)
   reloadKey.value += 1
 }
@@ -430,6 +433,7 @@ onBeforeUnmount(() => {
         <template v-else-if="tab === 'today'">
           <TodayView
             :groups="groups"
+            :safety="safety"
             :done-ids="doneToday"
             :task-count="tasks.length"
             @practice="practiceIndex"

@@ -30,26 +30,6 @@ const secondary = computed(() => {
   return [plan, note].filter((v): v is string => !!v && v.length > 0).join(' ')
 })
 
-/**
- * 注意事项卡（config.notesCard）：把多行文本解析成「编号小标题 + 正文」结构。
- * 行格式「1、标题：正文」，无匹配的行整体作为正文兜底。
- */
-interface NoteEntry {
-  head: string
-  body: string
-}
-const noteEntries = computed<NoteEntry[] | null>(() => {
-  if (!props.task.item.config?.notesCard) return null
-  return (props.task.item.note ?? '')
-    .split(/\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const m = line.match(/^(\d+[、.．][^：:]+)[：:](.*)$/)
-      return m ? { head: m[1]!, body: m[2]!.trim() } : { head: '', body: line }
-    })
-})
-
 /** 把 config 参数翻译成人话徽标，让当日页也能看到完整练法。 */
 const paramTags = computed<string[]>(() => {
   const c = props.task.item.config
@@ -166,14 +146,7 @@ watch(
       <ImageGrid :files="images" :key="task.key" />
     </div>
 
-    <!-- 注意事项卡：紧凑小字结构化排版 -->
-    <div v-if="noteEntries" class="notes-list">
-      <p v-for="(n, i) in noteEntries" :key="i" class="note-entry">
-        <template v-if="n.head"><b>{{ n.head }}</b>：{{ n.body }}</template>
-        <template v-else>{{ n.body }}</template>
-      </p>
-    </div>
-    <p v-else-if="secondary" class="secondary">{{ secondary }}</p>
+    <p v-if="secondary" class="secondary">{{ secondary }}</p>
   </article>
 </template>
 
@@ -220,24 +193,6 @@ watch(
   color: var(--muted);
   font-weight: 400;
   background: none;
-}
-/* 注意事项卡：12.5px 紧凑小字 + 加粗编号小标题 */
-.notes-list {
-  margin: 10px 0 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.note-entry {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.65;
-  color: var(--text);
-  opacity: 0.82;
-}
-.note-entry b {
-  font-weight: 600;
-  color: var(--text);
 }
 .params {
   display: flex;

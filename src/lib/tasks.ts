@@ -25,6 +25,55 @@ export interface PracticeTask {
  */
 const PRE_NUMBERED = /^[零一二三四五六七八九十]+、/
 
+/**
+ * 顶部「练前安全提示」卡：从打卡训练列表中抽离的特殊提示组。
+ * - 识别依据：组内任一二级项 config.notesCard === true（模板迁移时打的标记）；
+ * - 不参与打卡、不计入总进度、不占用「一、二、三…」编号；
+ * - 由页面顶部独立卡片渲染，自定义模式下仍可编辑其文本。
+ */
+export interface SafetyCard {
+  key: string
+  /** 卡片标题，如「练前安全提示（所有练习保持）」 */
+  title: string
+  /** 解析后的条目：head 为「N. 短标题」（加粗展示），body 为说明文字 */
+  entries: { head: string; body: string }[]
+}
+
+/** 行格式「1. 标题：正文」；无匹配的行整体作为正文兜底。 */
+function parseNoteEntries(note: string): SafetyCard['entries'] {
+  return note
+    .split(/\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const m = line.match(/^(\d+[、.．][^：:]+)[：:](.*)$/)
+      return m ? { head: m[1]!, body: m[2]!.trim() } : { head: '', body: line }
+    })
+}
+
+function isSafetyGroup(children: Level2Item[]): boolean {
+  return children.some((i) => i.config?.notesCard === true)
+}
+
+/** 抽离模板中的练前安全提示组；无内容或无标记时返回 null。 */
+export function buildSafetyCard(level1: Level1Item[], level2: Level2Item[]): SafetyCard | null {
+  const l1 = [...level1].sort((a, b) => a.order - b.order)
+  for (const first of l1) {
+    const children = level2
+      .filter((i) => i.level1_id === first.id && hasContent(i))
+      .sort((a, b) => a.order - b.order)
+    if (children.length === 0 || !isSafetyGroup(children)) continue
+    const note = children
+      .map((i) => i.note ?? '')
+      .filter(Boolean)
+      .join('\n')
+    const entries = parseNoteEntries(note)
+    if (!entries.length) continue
+    return { key: first.id, title: first.title, entries }
+  }
+  return null
+}
+
 function hasContent(item: Level2Item): boolean {
   const filesOk = Array.isArray(item.files) && item.files.length > 0
   const noteOk = typeof item.note === 'string' && item.note.length > 0
@@ -37,6 +86,7 @@ function hasContent(item: Level2Item): boolean {
  * 按一级 → 二级顺序构建跟练队列。
  * - 二级项 files/note/plan/config 全空则隐藏；
  * - 一级项下无可见二级则整组隐藏，且不占用一级编号；
+ * - 练前安全提示组（notesCard 标记）不进打卡队列，由 buildSafetyCard 单独抽离；
  * - 编号只按可见项连续生成（一级中文、二级阿拉伯，二级在每组内重新起算）。
  */
 export function buildTaskGroups(level1: Level1Item[], level2: Level2Item[]): TaskGroup[] {
@@ -49,6 +99,8 @@ export function buildTaskGroups(level1: Level1Item[], level2: Level2Item[]): Tas
       .filter((i) => i.level1_id === first.id && hasContent(i))
       .sort((a, b) => a.order - b.order)
     if (children.length === 0) continue
+    // 练前安全提示组：不作为训练大类，不占编号（顶部安全卡单独渲染）。
+    if (isSafetyGroup(children)) continue
 
     const preNumbered = PRE_NUMBERED.test(first.title)
     if (!preNumbered) groupIndex += 1
