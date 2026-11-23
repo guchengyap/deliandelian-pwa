@@ -281,18 +281,23 @@ async function confirmAdminReset() {
         <p class="block-text muted about-version">版本 {{ appVersion }} · {{ buildId }}</p>
       </template>
 
-      <!-- 关于作者 -->
+      <!-- 作者与支持 -->
       <template v-else-if="activeInfo === 'author'">
-        <p class="block-text">VINCE DWAN，ENFP，业余入门唱歌爱好者，不务正业的可怜财务人，希望可以晚饭加鸡腿。</p>
+        <p class="block-text">VINCE DWAN，业余入门唱歌爱好者，不务正业的ENFP小会计，赞赏给我晚饭加个鸡腿吧，感激不尽。</p>
         <button type="button" class="donate-card single" @click="openDonate">
           <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
           <span>支付宝扫一扫，加个鸡腿</span>
         </button>
-        <p class="biz-note">
-          接中小企业财务分析；接个人/银企大额/小额电子过桥等，费用低廉（仅限地区：粤）；接工作机会（过硬跨境全盘财务能力）以上可联系
-          <a class="biz-mail" :href="`mailto:${FEEDBACK_EMAIL}`">{{ FEEDBACK_EMAIL }}</a>
-          <button type="button" class="biz-copy" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制' }}</button>
-        </p>
+        <ul class="biz-list">
+          <li>接中小企业财务分析；</li>
+          <li>接个人/银企大额/小额电子过桥等，费用低廉（仅限地区：粤）；</li>
+          <li>招聘我（跨境财务全盘）</li>
+          <li class="biz-contact">
+            <span>以上可联系 {{ FEEDBACK_EMAIL }}</span>
+            <a class="biz-mail" :href="`mailto:${FEEDBACK_EMAIL}`">发邮件</a>
+            <button type="button" class="biz-copy" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制' }}</button>
+          </li>
+        </ul>
       </template>
 
       <!-- 意见与反馈 -->
@@ -307,7 +312,7 @@ async function confirmAdminReset() {
 
       <!-- 鸣谢 -->
       <template v-else>
-        <p class="block-text">先鸣谢我自己的鼎力支持吧。</p>
+        <p class="block-text">特别感谢我自己的鼎力支持。</p>
       </template>
     </section>
 
@@ -941,13 +946,27 @@ dd.ok {
   max-width: 220px;
   margin: 12px auto 4px;
 }
-/* 业务合作说明：灰色小小字 */
-.biz-note {
+/* 业务合作说明：每条独立成行 */
+.biz-list {
   margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.biz-list li {
+  margin: 0 0 8px;
   font-size: 11px;
   line-height: 1.6;
   color: var(--muted);
   opacity: 0.85;
+}
+.biz-list li:last-child {
+  margin-bottom: 0;
+}
+.biz-contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .biz-mail {
   color: var(--accent);
@@ -958,7 +977,6 @@ dd.ok {
   text-decoration: underline;
 }
 .biz-copy {
-  margin-left: 6px;
   border: none;
   background: var(--fill);
   color: var(--accent);
