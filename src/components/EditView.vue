@@ -622,7 +622,7 @@ async function save() {
             <span
               v-if="g.items.some((i) => i.config?.notesCard)"
               class="safety-chip"
-              title="该板块渲染为当日页顶部「练前安全提示」卡，不参与打卡与编号"
+              title="该板块渲染为当日页顶部「练声温馨提醒」卡，不参与打卡与编号"
             >
               顶部提示卡
             </span>

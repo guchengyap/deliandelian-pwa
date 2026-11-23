@@ -28,7 +28,7 @@ type Tab = 'stats' | 'today' | 'practice' | 'tuner'
 type Overlay = 'none' | 'settings' | 'help' | 'edit'
 
 const groups = ref<ReturnType<typeof buildTaskGroups>>([])
-/** 顶部「练前安全提示」卡（不参与打卡与编号），无则不渲染。 */
+/** 顶部「练声温馨提醒」卡（不参与打卡与编号），无则不渲染。 */
 const safety = ref<SafetyCard | null>(null)
 const tasks = computed(() => flattenTasks(groups.value))
 const current = ref(0)

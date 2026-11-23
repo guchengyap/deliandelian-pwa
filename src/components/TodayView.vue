@@ -5,7 +5,7 @@ import TaskView from './TaskView.vue'
 
 const props = defineProps<{
   groups: TaskGroup[]
-  /** 顶部「练前安全提示」卡（不参与打卡与编号），无则不渲染。 */
+  /** 顶部「练声温馨提醒」卡（不参与打卡与编号），无则不渲染。 */
   safety?: SafetyCard | null
   doneIds: Set<string>
   taskCount: number
@@ -83,7 +83,7 @@ function hasBody(t: PracticeTask): boolean {
   )
 }
 
-/** 练前安全提示卡：默认收起，点右上角箭头展开/收起（不参与打卡）。 */
+/** 练声温馨提醒卡：默认收起，点右上角箭头展开/收起（不参与打卡）。 */
 const safetyOpen = ref(false)
 </script>
 
@@ -140,7 +140,7 @@ const safetyOpen = ref(false)
       </button>
     </section>
 
-    <!-- 练前安全提示：独立小卡，不参与打卡与编号，默认收起 -->
+    <!-- 练声温馨提醒：独立小卡，不参与打卡与编号，默认收起 -->
     <section v-if="safety" class="safety" :class="{ open: safetyOpen }">
       <button
         type="button"
@@ -178,12 +178,17 @@ const safetyOpen = ref(false)
         </svg>
       </button>
       <div v-if="safetyOpen" class="safety-body">
-        <div v-for="(n, i) in safety.entries" :key="i" class="safety-entry">
-          <p v-if="n.head" class="se-head">
-            <span v-if="n.no" class="se-no">{{ n.no }}</span>
-            <span class="se-title">{{ n.head }}</span>
-          </p>
-          <p v-if="n.body" class="se-body">{{ n.body }}</p>
+        <div
+          v-for="(n, i) in safety.entries"
+          :key="i"
+          class="safety-entry"
+          :class="{ warn: i === 3 }"
+        >
+          <span class="se-no">{{ i + 1 }}.</span>
+          <div class="se-main">
+            <p class="se-head">{{ n.head }}</p>
+            <p v-if="n.body" class="se-body">{{ n.body }}</p>
+          </div>
         </div>
       </div>
     </section>
@@ -427,7 +432,7 @@ const safetyOpen = ref(false)
 .uncheck-all:active {
   opacity: 0.55;
 }
-/* ── 练前安全提示卡：浅暖色独立小卡，不参与打卡 ── */
+/* ── 练声温馨提醒卡：浅暖色独立小卡，不参与打卡 ── */
 .safety {
   margin: -8px 0 20px;
   border-radius: var(--r-m);
@@ -478,34 +483,48 @@ const safetyOpen = ref(false)
   flex-direction: column;
   gap: 8px;
 }
-/* 每条两行：第一行序号+粗标题，第二行正文与标题首字垂直对齐 */
+/* 每条：左侧独立编号列 + 右侧纵向容器（第1行粗标题 + 第2行说明小字）。
+   编号固定宽度、去除多余空格；小字与标题同处 .se-main 左缘，首字严格垂直对齐。 */
 .safety-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.se-no {
+  flex: 0 0 auto;
+  width: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.se-main {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
 }
 .se-head {
   margin: 0;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   line-height: 1.5;
 }
-.se-no {
-  flex: 0 0 auto;
-  width: 18px;
-  font-variant-numeric: tabular-nums;
-}
-.se-title {
-  min-width: 0;
-}
 .se-body {
-  margin: 2px 0 0 24px; /* 18px 序号宽 + 6px 间距 = 与标题首字对齐 */
+  margin: 2px 0 0;
   font-size: 12px;
   line-height: 1.65;
   color: var(--muted);
+}
+/* 第 4 条「出现不适立刻停练」：低饱和度柔和暖红，与卡片底色自然融合、不刺眼 */
+.safety-entry.warn .se-no,
+.safety-entry.warn .se-head {
+  color: #b94a48;
+}
+.safety-entry.warn .se-body {
+  color: #a85a56;
 }
 
 .group {
