@@ -37,6 +37,8 @@ export interface ItemConfig {
   timer?: number
   reps?: number | { min: number; max: number }
   secondsPerRep?: number
+  /** 注意事项卡标记：单卡一次打卡、结构化小字渲染、不显示「单独练」入口。 */
+  notesCard?: boolean
 }
 
 /** 一级项：只存 order，展示用的中文编号由渲染层生成。 */

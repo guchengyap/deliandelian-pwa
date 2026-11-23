@@ -451,7 +451,7 @@ onBeforeUnmount(() => {
             :key="`${task.key}-${reloadKey}`"
             :task="task"
             :done="isDone"
-            :group-label="groupOfCurrent ? `${groupOfCurrent.cn}、${groupOfCurrent.title}` : ''"
+            :group-label="groupOfCurrent ? (groupOfCurrent.cn ? `${groupOfCurrent.cn}、${groupOfCurrent.title}` : groupOfCurrent.title) : ''"
             @auto-done="onAutoDone"
           />
         </template>

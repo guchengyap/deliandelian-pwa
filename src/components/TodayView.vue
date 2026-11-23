@@ -80,6 +80,11 @@ function hasBody(t: PracticeTask): boolean {
     (item.config != null && Object.keys(item.config).length > 0)
   )
 }
+
+/** 注意事项卡：单卡一次打卡，无「单独练」入口（内容只在当日页看）。 */
+function isNotesCard(t: PracticeTask): boolean {
+  return !!t.item.config?.notesCard
+}
 </script>
 
 <template>
@@ -137,7 +142,7 @@ function hasBody(t: PracticeTask): boolean {
 
     <section v-for="g in groups" :key="g.key" class="group">
       <div class="group-head">
-        <h2>{{ g.cn }}、{{ g.title }}</h2>
+        <h2>{{ g.cn ? `${g.cn}、` : '' }}{{ g.title }}</h2>
         <span class="group-count">{{ groupDone(g) }}/{{ g.tasks.length }}</span>
       </div>
       <div class="cards">
@@ -189,7 +194,7 @@ function hasBody(t: PracticeTask): boolean {
               @auto-done="emit('autoDone', $event)"
             />
             <p v-if="!hasBody(t)" class="no-content">这一项没有音频或图片，照上面的说明练即可。</p>
-            <button type="button" class="solo" @click="openTask(t.key)">到跟练页单独练 ›</button>
+            <button v-if="!isNotesCard(t)" type="button" class="solo" @click="openTask(t.key)">到跟练页单独练 ›</button>
           </div>
         </article>
       </div>

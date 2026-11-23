@@ -18,6 +18,13 @@ export interface PracticeTask {
   item: Level2Item
 }
 
+/**
+ * 一级标题已自带中文序号前缀（如「零、注意事项…」）时：
+ * 不再自动编号、不占用「一、二、三…」序号，标题原样展示。
+ * 用于前置型板块（注意事项）让正式训练从「一、」顺延。
+ */
+const PRE_NUMBERED = /^[零一二三四五六七八九十]+、/
+
 function hasContent(item: Level2Item): boolean {
   const filesOk = Array.isArray(item.files) && item.files.length > 0
   const noteOk = typeof item.note === 'string' && item.note.length > 0
@@ -43,10 +50,11 @@ export function buildTaskGroups(level1: Level1Item[], level2: Level2Item[]): Tas
       .sort((a, b) => a.order - b.order)
     if (children.length === 0) continue
 
-    groupIndex += 1
+    const preNumbered = PRE_NUMBERED.test(first.title)
+    if (!preNumbered) groupIndex += 1
     groups.push({
       key: first.id,
-      cn: toChineseNumber(groupIndex),
+      cn: preNumbered ? '' : toChineseNumber(groupIndex),
       title: first.title,
       tasks: children.map((item, idx) => ({
         key: item.id,

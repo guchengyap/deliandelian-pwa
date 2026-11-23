@@ -244,6 +244,25 @@ function dropItem(targetGroupId: string, targetId: string) {
   dragging = null
 }
 
+// ── 上移 / 下移：精准排序，点击即自动保存到本地/云端 ──
+function moveGroup(id: string, delta: number) {
+  const i = groups.value.findIndex((g) => g.id === id)
+  const j = i + delta
+  if (i < 0 || j < 0 || j >= groups.value.length) return
+  const [g] = groups.value.splice(i, 1)
+  groups.value.splice(j, 0, g)
+  void autoSaveOrder()
+}
+
+function moveItem(group: DraftGroup, id: string, delta: number) {
+  const i = group.items.findIndex((it) => it.id === id)
+  const j = i + delta
+  if (i < 0 || j < 0 || j >= group.items.length) return
+  const [it] = group.items.splice(i, 1)
+  group.items.splice(j, 0, it)
+  void autoSaveOrder()
+}
+
 // ── 上传 / 替换 ─────────────────────────────────────────
 const fileInput = ref<HTMLInputElement | null>(null)
 type UploadCtx = { groupId: string; itemId: string; mode: 'add' | 'replace'; fileId?: string }
@@ -439,6 +458,46 @@ function cleanItem(item: Level2Item, level1_id: string, order: number): Level2It
   return out
 }
 
+/** 由草稿生成落库行（order 按当前数组顺序重排）。 */
+function buildRows() {
+  const l1rows = deepRaw(
+    groups.value.map((g, i) => ({ id: g.id, order: i + 1, title: g.title.trim() })),
+  )
+  const l2rows = deepRaw(
+    groups.value.flatMap((g) => g.items.map((item, i) => cleanItem(item, g.id, i + 1))),
+  )
+  return { l1rows, l2rows }
+}
+
+/** 目录写入：本地整表替换 + 云端空间同步（admin 推模板、用户推专属空间）。 */
+async function writeCatalog(l1rows: Level1Item[], l2rows: Level2Item[]) {
+  await db.transaction('rw', db.level1, db.level2, async () => {
+    await db.level1.clear()
+    await db.level2.clear()
+    await db.level1.bulkAdd(l1rows)
+    await db.level2.bulkAdd(l2rows)
+  })
+  if (canWriteCloud()) {
+    await saveSpace({ level1: l1rows, level2: l2rows })
+  }
+}
+
+/** 排序后的轻量自动保存：不动文件清理队列，也不做 config 校验（沿用最后解析值）。 */
+const autoSaving = ref(false)
+async function autoSaveOrder() {
+  if (autoSaving.value) return
+  autoSaving.value = true
+  try {
+    const { l1rows, l2rows } = buildRows()
+    await writeCatalog(l1rows as Level1Item[], l2rows as Level2Item[])
+    message.value = '顺序已自动保存 ✓'
+  } catch (err) {
+    message.value = `顺序保存失败：${err instanceof Error ? err.message : String(err)}（可稍后点「保存并退出」重试）`
+  } finally {
+    autoSaving.value = false
+  }
+}
+
 async function save() {
   message.value = ''
   // 先校验所有 JSON，避免写库写到一半失败。
@@ -474,21 +533,10 @@ async function save() {
 
   saving.value = true
   try {
-    const l1rows = deepRaw(
-      groups.value.map((g, i) => ({ id: g.id, order: i + 1, title: g.title.trim() })),
-    )
-    const l2rows = deepRaw(
-      groups.value.flatMap((g) => g.items.map((item, i) => cleanItem(item, g.id, i + 1))),
-    )
-    await db.transaction('rw', db.level1, db.level2, async () => {
-      await db.level1.clear()
-      await db.level2.clear()
-      await db.level1.bulkAdd(l1rows)
-      await db.level2.bulkAdd(l2rows)
-    })
-    // 云端：先完成空间同步，再清理已删除的云端文件；任一步失败则留在自定义模式重试。
+    const { l1rows, l2rows } = buildRows()
+    await writeCatalog(l1rows, l2rows)
+    // 云端：空间同步成功后再清理已删除的云端文件；任一步失败则留在自定义模式重试。
     if (canWriteCloud()) {
-      await saveSpace({ level1: l1rows, level2: l2rows })
       for (const cid of deletedCloudIds) await deleteCloudFileQuiet(cid)
       deletedCloudIds.clear()
       void refreshUsage()
@@ -531,16 +579,46 @@ async function save() {
       </div>
 
       <div class="body">
-        <section v-for="g in groups" :key="g.id" class="group">
+        <section v-for="(g, gi) in groups" :key="g.id" class="group">
           <div class="group-head" @dragover.prevent @drop.prevent="dropGroup(g.id)">
             <span
-              class="handle"
+              class="handle group-handle"
               draggable="true"
-              title="拖拽排序"
+              title="拖拽排序（一级板块）"
               @dragstart="startDrag({ kind: 'group', id: g.id }, $event)"
-              >⠿</span
             >
+              <svg viewBox="0 0 12 18" aria-hidden="true">
+                <circle cx="3.5" cy="3" r="1.9" />
+                <circle cx="8.5" cy="3" r="1.9" />
+                <circle cx="3.5" cy="9" r="1.9" />
+                <circle cx="8.5" cy="9" r="1.9" />
+                <circle cx="3.5" cy="15" r="1.9" />
+                <circle cx="8.5" cy="15" r="1.9" />
+              </svg>
+            </span>
             <input v-model="g.title" class="g-title" aria-label="一级项标题" />
+            <div class="order-btns">
+              <button
+                type="button"
+                class="order"
+                :disabled="gi === 0"
+                aria-label="上移此板块"
+                title="上移"
+                @click="moveGroup(g.id, -1)"
+              >
+                ↑
+              </button>
+              <button
+                type="button"
+                class="order"
+                :disabled="gi === groups.length - 1"
+                aria-label="下移此板块"
+                title="下移"
+                @click="moveGroup(g.id, 1)"
+              >
+                ↓
+              </button>
+            </div>
             <button type="button" class="danger" @click="deleteGroup(g.id)">
               {{ confirmGroupId === g.id ? '确认删除？' : '删除' }}
             </button>
@@ -551,7 +629,7 @@ async function save() {
           <p v-if="confirmGroupId === g.id" class="warn">将连带删除其下 {{ g.items.length }} 个二级项</p>
 
           <div
-            v-for="item in g.items"
+            v-for="(item, ii) in g.items"
             :key="item.id"
             class="item"
             @dragover.prevent
@@ -559,13 +637,41 @@ async function save() {
           >
             <div class="item-head">
               <span
-                class="handle"
+                class="handle item-handle"
                 draggable="true"
-                title="拖拽排序"
+                title="拖拽排序（练习项）"
                 @dragstart="startDrag({ kind: 'item', groupId: g.id, id: item.id }, $event)"
-                >⠿</span
               >
+                <svg viewBox="0 0 12 12" aria-hidden="true">
+                  <circle cx="3.5" cy="3.5" r="1.5" />
+                  <circle cx="8.5" cy="3.5" r="1.5" />
+                  <circle cx="3.5" cy="8.5" r="1.5" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                </svg>
+              </span>
               <input v-model="item.title" class="i-title" placeholder="标题" aria-label="二级项标题" />
+              <div class="order-btns">
+                <button
+                  type="button"
+                  class="order"
+                  :disabled="ii === 0"
+                  aria-label="上移此练习项"
+                  title="上移"
+                  @click="moveItem(g, item.id, -1)"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  class="order"
+                  :disabled="ii === g.items.length - 1"
+                  aria-label="下移此练习项"
+                  title="下移"
+                  @click="moveItem(g, item.id, 1)"
+                >
+                  ↓
+                </button>
+              </div>
               <button type="button" class="danger" @click="deleteItem(g, item.id)">删除</button>
             </div>
 
@@ -817,6 +923,8 @@ async function save() {
   padding: 14px;
     background: var(--card-glass);
   border: 1px solid var(--card-glass-border);
+  /* 一级板块专属：左侧主色条，一眼区分大类与二级细项 */
+  border-left: 4px solid var(--accent);
   -webkit-backdrop-filter: var(--card-blur);
   backdrop-filter: var(--card-blur);
   box-shadow: var(--card-glass-shadow);
@@ -836,13 +944,54 @@ async function save() {
   flex: 0 0 auto;
   cursor: grab;
   color: var(--muted);
-  font-size: 18px;
-  padding: 0 4px;
+  padding: 0 2px;
   user-select: none;
+  display: inline-flex;
+  align-items: center;
+}
+.handle svg {
+  display: block;
+}
+/* 一级拖动手柄：双排网格粗点 + 主色调 */
+.group-handle svg {
+  width: 13px;
+  height: 19px;
+  fill: var(--accent);
+}
+/* 二级拖动手柄：小方点 + 浅灰 */
+.item-handle {
+  cursor: grab;
+}
+.item-handle svg {
+  width: 11px;
+  height: 11px;
+  fill: var(--faint);
+}
+/* 上移 / 下移：精准排序按钮 */
+.order-btns {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 4px;
+}
+.order {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: var(--r-s);
+  background: var(--fill);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+}
+.order:disabled {
+  opacity: 0.32;
 }
 .g-title {
   flex: 1;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
 }
 .i-title {
   flex: 1;
