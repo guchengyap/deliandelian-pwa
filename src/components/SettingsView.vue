@@ -130,22 +130,36 @@ function openDonate() {
   donateImg.value = `${import.meta.env.BASE_URL}donate-alipay.png`
 }
 
-// ── 反馈邮箱：一键复制 ──
+// ── 一键复制：邮箱 / 小红书好物链接 ──
+/** 小红书好物分享链接（音乐冰箱贴 @炑文studio）。 */
+const XHS_LINK = 'https://xhslink.cn/o/EQZmpWK15W'
 const emailCopied = ref(false)
-async function copyEmail() {
+const xhsCopied = ref(false)
+
+/** 写入剪贴板；非安全上下文（无 navigator.clipboard）时退回 execCommand。 */
+async function writeClipboard(text: string) {
   try {
-    await navigator.clipboard.writeText(FEEDBACK_EMAIL)
+    await navigator.clipboard.writeText(text)
   } catch {
-    // 剪贴板不可用（非安全上下文）时退回选中文本提示
     const el = document.createElement('textarea')
-    el.value = FEEDBACK_EMAIL
+    el.value = text
     document.body.appendChild(el)
     el.select()
     document.execCommand('copy')
     el.remove()
   }
+}
+
+async function copyEmail() {
+  await writeClipboard(FEEDBACK_EMAIL)
   emailCopied.value = true
   window.setTimeout(() => (emailCopied.value = false), 1800)
+}
+
+async function copyXhs() {
+  await writeClipboard(XHS_LINK)
+  xhsCopied.value = true
+  window.setTimeout(() => (xhsCopied.value = false), 1800)
 }
 
 // ── 显示辅助 ──
@@ -288,16 +302,18 @@ async function confirmAdminReset() {
           <img :src="`${base}donate-alipay.png`" alt="支付宝收款码" />
           <span>支付宝扫一扫，加个鸡腿</span>
         </button>
-        <ul class="biz-list">
-          <li>接中小企业财务分析；</li>
-          <li>接个人/银企大额/小额电子过桥等，费用低廉（仅限地区：粤）；</li>
-          <li>招聘我（跨境财务全盘）</li>
-          <li class="biz-contact">
-            <span>以上可联系 {{ FEEDBACK_EMAIL }}</span>
+        <ol class="biz-list">
+          <li>
+            音乐冰箱贴好物分享：@炑文studio 在小红书已经有3902个粉丝，点击链接或复制口令查看Ta的主页>>
+            <a class="biz-link" :href="XHS_LINK" target="_blank" rel="noopener noreferrer">{{ XHS_LINK }}</a>
+            <button type="button" class="biz-copy" @click="copyXhs">{{ xhsCopied ? '已复制 ✓' : '复制链接' }}</button>
+          </li>
+          <li>
+            接中小企业财务分析；接个人/银企大额/小额电子过桥等，费用低廉（仅限地区：粤）；招聘我（跨境财务全盘），以上可联系 {{ FEEDBACK_EMAIL }}
             <a class="biz-mail" :href="`mailto:${FEEDBACK_EMAIL}`">发邮件</a>
             <button type="button" class="biz-copy" @click="copyEmail">{{ emailCopied ? '已复制 ✓' : '复制' }}</button>
           </li>
-        </ul>
+        </ol>
       </template>
 
       <!-- 意见与反馈 -->
@@ -946,14 +962,14 @@ dd.ok {
   max-width: 220px;
   margin: 12px auto 4px;
 }
-/* 业务合作说明：每条独立成行 */
+/* 业务合作 / 好物推荐：每条独立成行、自动编号 */
 .biz-list {
   margin: 14px 0 0;
-  padding: 0;
-  list-style: none;
+  padding: 0 0 0 20px;
+  list-style: decimal;
 }
 .biz-list li {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
   font-size: 11px;
   line-height: 1.6;
   color: var(--muted);
@@ -962,11 +978,19 @@ dd.ok {
 .biz-list li:last-child {
   margin-bottom: 0;
 }
-.biz-contact {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+.biz-list li::marker {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+/* 小红书好物链接：下划线 + hover 反馈，不破坏换行 */
+.biz-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+.biz-link:hover {
+  opacity: 0.7;
 }
 .biz-mail {
   color: var(--accent);
